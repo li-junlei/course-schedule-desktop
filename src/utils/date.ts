@@ -10,6 +10,18 @@ export function formatDate(date: Date): string {
 }
 
 /**
+ * 格式化日期为 YYYY-MM-DD 格式（本地时间）
+ * @param date - 日期对象
+ * @returns 格式化后的日期字符串
+ */
+export function formatDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * 计算指定周次和星期的日期
  * @param firstDay - 学期第一天的时间戳
  * @param targetWeek - 目标周次

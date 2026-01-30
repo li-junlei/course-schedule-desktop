@@ -9,13 +9,17 @@
     }"
     @click.stop="handleClick"
   >
-    <div 
+    <div
       class="card-inner"
-      :style="{ backgroundColor: color }"
+      :style="{
+        backgroundColor: color,
+        opacity: cardOpacity / 100
+      }"
     >
       <div class="card-content-wrapper">
         <div class="course-name">{{ course.name }}</div>
-        <div class="course-location" v-if="course.location">@{{ course.location }}</div>
+        <div class="course-location" v-if="showLocation && course.location">@{{ course.location }}</div>
+        <div class="course-teacher" v-if="showTeacher && course.teacher">{{ course.teacher }}</div>
       </div>
     </div>
   </div>
@@ -31,10 +35,16 @@ interface Props {
   week: number;
   color: string;
   maxPeriods?: number;
+  cardOpacity?: number;
+  showTeacher?: boolean;
+  showLocation?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   maxPeriods: 13,
+  cardOpacity: 95,
+  showTeacher: true,
+  showLocation: true,
 });
 
 /**
@@ -180,6 +190,18 @@ function handleClick() {
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin-top: 1px;
-  word-break: break-all;
+}
+
+.course-teacher {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.2;
+  font-weight: 400;
+  /* Allow multi-line */
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
 }
 </style>

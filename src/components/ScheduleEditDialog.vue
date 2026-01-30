@@ -128,6 +128,7 @@ import { ArrowRight, CopyDocument } from '@element-plus/icons-vue';
 import TimeTableManager from './TimeTableManager.vue';
 import { useCourse } from '../composables/useCourse';
 import { useTimeTable } from '../composables/useTimeTable';
+import { formatDateString } from '../utils/date';
 import type { ScheduleMetadata, TimeTable } from '../types';
 
 const props = defineProps<{
@@ -177,22 +178,22 @@ watch(() => props.modelValue, async (val) => {
         console.log('Initializing dialog with data:', props.initialData);
         // Initialize form from props
         const meta = props.initialData;
-        
-        // Date
-        form.value.firstDayDate = meta.first_day 
-            ? new Date(meta.first_day * 1000).toISOString().split('T')[0] 
+
+        // Date - 使用本地时间格式化，而不是 UTC
+        form.value.firstDayDate = meta.first_day
+            ? formatDateString(new Date(meta.first_day * 1000))
             : '';
-            
+
         // Configs (with defaults)
         form.value.maxPeriods = meta.max_periods || 13;
         form.value.weeksCount = meta.weeks_count || 20;
         form.value.timeTableId = meta.time_table_id || '';
-        
+
         // Ensure time tables are loaded
         if (timeTables.value.length === 0) {
             await listTimeTables();
         }
-        
+
         // If no time table selected, try to select default
         if (!form.value.timeTableId) {
             const def = timeTables.value.find(t => t.id === 'default');

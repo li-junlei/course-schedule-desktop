@@ -57,6 +57,14 @@ export interface AppConfig {
   edu_system_url?: string;
   /** 当前选中的课表ID */
   current_schedule_id?: string;
+  /** 显示网格辅助线 */
+  show_grid_lines?: boolean;
+  /** 课程卡片不透明度 (0-100) */
+  card_opacity?: number;
+  /** 在卡片中显示教师 */
+  show_teacher?: boolean;
+  /** 在卡片中显示上课地点 */
+  show_location?: boolean;
 }
 
 /**

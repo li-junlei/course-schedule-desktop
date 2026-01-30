@@ -19,14 +19,33 @@
     </div>
 
     <!-- 右侧课表区域 -->
-    <div 
-      class="schedule-area" 
-      :style="{ 
+    <div
+      class="schedule-area"
+      :class="{ 'show-grid': showGridLines }"
+      :style="{
         backgroundImage: bgImage ? `url(${bgImage})` : 'none',
         transform: `translateX(${swipeOffset}px)`,
         transition: isSwipingEnd ? 'transform 0.3s ease' : 'none'
       }"
     >
+      <!-- 网格辅助线 -->
+      <div v-if="showGridLines" class="grid-lines">
+        <!-- 横线（节次分隔线，跳过第一条上框线） -->
+        <div
+          v-for="i in maxPeriods - 1"
+          :key="'h-' + (i + 1)"
+          class="grid-line horizontal"
+          :style="{ top: ((i) * 100 / maxPeriods) + '%' }"
+        />
+        <!-- 竖线（星期分隔线，跳过第一条左框线） -->
+        <div
+          v-for="i in 6"
+          :key="'v-' + (i + 1)"
+          class="grid-line vertical"
+          :style="{ left: ((i) * 100 / 7) + '%' }"
+        />
+      </div>
+
       <!-- 假期提示 -->
       <div v-if="week > endWeek && courses.length > 0" class="vacation">
         <span>放假了，出去玩吧！</span>
@@ -39,6 +58,9 @@
         :course="course"
         :week="week"
         :color="colors[index % colors.length]"
+        :card-opacity="cardOpacity"
+        :show-teacher="showTeacher"
+        :show-location="showLocation"
         @click="onCardClick"
       />
     </div>
@@ -58,12 +80,20 @@ interface Props {
   bgImage?: string;
   maxPeriods?: number;
   periodTimes?: PeriodTime[]; // Custom time labels with start and end
+  showGridLines?: boolean;
+  cardOpacity?: number;
+  showTeacher?: boolean;
+  showLocation?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   bgImage: '',
   maxPeriods: 13,
   periodTimes: () => [],
+  showGridLines: false,
+  cardOpacity: 95,
+  showTeacher: true,
+  showLocation: true,
 });
 
 const emit = defineEmits<{
@@ -226,14 +256,45 @@ function endSwipe() {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  
+}
+
+/* 显示网格时的样式 */
+.schedule-area.show-grid {
   /* 添加水平辅助线 */
   background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--border-color) 100%);
   background-size: 100% v-bind(rowHeightStr);
 }
 
-/* 垂直辅助线 (Optional, can be added if needed, but clean look might be better without strong vertical lines) */
-/* .schedule-area::before { ... } */
+/* 网格辅助线容器 */
+.grid-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 网格线 */
+.grid-line {
+  position: absolute;
+  opacity: 0.8;
+}
+
+.grid-line.horizontal {
+  width: 100%;
+  height: 0;
+  left: 0;
+  border-top: 2px dashed var(--border-color);
+}
+
+.grid-line.vertical {
+  width: 0;
+  height: 100%;
+  top: 0;
+  border-left: 2px dashed var(--border-color);
+}
 
 /* 假期提示 */
 .vacation {

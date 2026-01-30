@@ -10,6 +10,11 @@
         <span>第 {{ currentWeek }} 周</span>
         <el-icon :size="14"><ArrowDown /></el-icon>
       </div>
+      <div class="navbar-right" v-if="semesterStatus">
+        <span class="semester-status" :class="semesterStatus.type">
+          {{ semesterStatus.text }}
+        </span>
+      </div>
     </div>
 
     <!-- 弹出菜单 -->
@@ -136,10 +141,10 @@
         <div class="appearance-grid">
           <div class="appearance-item" @click="handleUploadBackground">
             <div class="item-preview bg-preview">
-               <el-image 
-                 v-if="backgroundImage" 
-                 :src="backgroundImage" 
-                 fit="cover" 
+               <el-image
+                 v-if="backgroundImage"
+                 :src="backgroundImage"
+                 fit="cover"
                  style="width: 100%; height: 100%;"
                />
                <div v-else class="placeholder-icon">
@@ -163,6 +168,88 @@
             <div class="item-info">
               <div class="item-title">移除背景</div>
               <div class="item-desc">恢复默认纯净背景</div>
+            </div>
+          </div>
+
+          <!-- 网格辅助线开关 -->
+          <div class="appearance-item switch-item" style="cursor: default;">
+            <div class="item-preview switch-preview">
+               <el-icon :size="32"><Grid /></el-icon>
+            </div>
+            <div class="item-info">
+              <div class="item-title">显示网格辅助线</div>
+              <div class="item-desc">帮助对齐课程卡片</div>
+              <div class="item-control">
+                <el-switch
+                  v-model="config.show_grid_lines"
+                  @change="handleToggleGridLines"
+                  :active-icon="Check"
+                  :inactive-icon="Close"
+                  style="--el-switch-on-color: var(--primary-color);"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- 显示授课老师开关 -->
+          <div class="appearance-item switch-item" style="cursor: default;">
+            <div class="item-preview switch-preview">
+               <el-icon :size="32"><User /></el-icon>
+            </div>
+            <div class="item-info">
+              <div class="item-title">显示授课老师</div>
+              <div class="item-desc">在课程卡片中显示教师姓名</div>
+              <div class="item-control">
+                <el-switch
+                  v-model="config.show_teacher"
+                  @change="handleToggleTeacher"
+                  :active-icon="Check"
+                  :inactive-icon="Close"
+                  style="--el-switch-on-color: var(--primary-color);"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- 显示上课地点开关 -->
+          <div class="appearance-item switch-item" style="cursor: default;">
+            <div class="item-preview switch-preview">
+               <el-icon :size="32"><Location /></el-icon>
+            </div>
+            <div class="item-info">
+              <div class="item-title">显示上课地点</div>
+              <div class="item-desc">在课程卡片中显示教室位置</div>
+              <div class="item-control">
+                <el-switch
+                  v-model="config.show_location"
+                  @change="handleToggleLocation"
+                  :active-icon="Check"
+                  :inactive-icon="Close"
+                  style="--el-switch-on-color: var(--primary-color);"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- 课程卡片不透明度 -->
+          <div class="appearance-item slider-item" style="cursor: default;">
+            <div class="item-preview slider-preview">
+               <el-icon :size="32"><View /></el-icon>
+            </div>
+            <div class="item-info">
+              <div class="item-title">课程卡片不透明度</div>
+              <div class="item-desc">{{ config.card_opacity }}%</div>
+              <div class="item-control">
+                <el-slider
+                  v-model.number="config.card_opacity"
+                  :min="50"
+                  :max="100"
+                  :step="5"
+                  @change="handleCardOpacityChange"
+                  :show-tooltip="false"
+                  style="width: 100%;"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -344,7 +431,12 @@
           <span>{{ getDate(1).split('/')[0] }}</span>
           <span>月</span>
         </div>
-        <div v-for="(day, index) in weekDays" :key="index" class="week-bar-item">
+        <div
+          v-for="(day, index) in weekDays"
+          :key="index"
+          class="week-bar-item"
+          :class="{ 'is-today': isToday(index + 1) }"
+        >
           <span>{{ day }}</span>
           <span class="date">{{ getDate(index + 1) }}</span>
         </div>
@@ -359,6 +451,10 @@
         :bg-image="backgroundImage"
         :max-periods="currentMaxPeriods"
         :period-times="currentPeriodTimes"
+        :show-grid-lines="config.show_grid_lines"
+        :card-opacity="config.card_opacity"
+        :show-teacher="config.show_teacher"
+        :show-location="config.show_location"
         @update:week="handleWeekChange"
         @course-click="handleCourseClick"
       />
@@ -439,13 +535,13 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { ElMessage, ElMessageBox, ElConfigProvider } from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
-import { MoreFilled, ArrowDown, Loading, CopyDocument, Plus, Picture, Delete, Close, Clock, Calendar, Warning, Collection, Sunny, Moon, Link, Upload, Timer, User, Location, Edit, Sort, Check } from '@element-plus/icons-vue';
+import { MoreFilled, ArrowDown, Loading, CopyDocument, Plus, Picture, Delete, Close, Clock, Calendar, Warning, Collection, Sunny, Moon, Link, Upload, Timer, User, Location, Edit, Sort, Check, Grid, View } from '@element-plus/icons-vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import VueDraggable from 'vuedraggable';
 import { useCourse, useBrowserImport } from './composables/useCourse';
-import { calculateDate } from './utils/date';
+import { calculateDate, formatDateString } from './utils/date';
 import { getShuffledColors } from './utils/color';
 import PopupMenu from './components/PopupMenu.vue';
 import WeekSelector from './components/WeekSelector.vue';
@@ -539,6 +635,23 @@ function recalculateCurrentWeek() {
   }
 }
 
+// 计算学期状态
+const semesterStatus = computed(() => {
+  const startTimestamp = activeSchedule.value?.first_day || config.value.first_day;
+  if (!startTimestamp) return null;
+
+  const startTime = startTimestamp * 1000;
+  const endTime = startTime + (currentSemesterWeeks.value || 20) * 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  if (now < startTime) {
+    return { type: 'not-started', text: '未开学' };
+  } else if (now > endTime) {
+    return { type: 'ended', text: '学期已结束' };
+  }
+  return null; // 学期进行中
+});
+
 // 监听 activeSchedule 或 config 变化，自动更新当前周次
 watch(
   [() => activeSchedule.value?.first_day, () => config.value.first_day],
@@ -552,11 +665,29 @@ watch(
 function getDate(day: number): string {
   // 优先使用当前课表的设置
   const startTimestamp = activeSchedule.value?.first_day || config.value.first_day;
-  
+
   if (!startTimestamp) {
     return '--/--';
   }
   return calculateDate(startTimestamp, currentWeek.value, day);
+}
+
+// 判断某天是否是今天
+function isToday(day: number): boolean {
+  const startTimestamp = activeSchedule.value?.first_day || config.value.first_day;
+  if (!startTimestamp) return false;
+
+  // 计算指定星期几的日期
+  const startDate = new Date(startTimestamp * 1000);
+  const targetDate = new Date(startDate);
+  targetDate.setDate(startDate.getDate() + (currentWeek.value - 1) * 7 + (day - 1));
+
+  // 获取今天的日期（只比较年月日，不比较时分秒）
+  const today = new Date();
+  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+
+  return targetDateOnly.getTime() === todayDateOnly.getTime();
 }
 
 // 详情抽屉状态
@@ -841,7 +972,7 @@ async function handleNewSchedule() {
 // 编辑课表日期
 async function handleEditScheduleDate(schedule: ScheduleMetadata) {
   const firstDayDate = schedule.first_day
-    ? new Date(schedule.first_day * 1000).toISOString().split('T')[0]
+    ? formatDateString(new Date(schedule.first_day * 1000))
     : undefined;
 
   console.log('编辑课表日期:', {
@@ -954,7 +1085,7 @@ async function handleUploadBackground() {
 // 处理删除背景
 async function handleDeleteBackground() {
   showPopup.value = false;
-  
+
   try {
     await invoke('delete_background_image');
     config.value.background_image = undefined;
@@ -962,6 +1093,42 @@ async function handleDeleteBackground() {
     ElMessage.success('背景已删除');
   } catch (e) {
     ElMessage.error(`删除失败: ${e}`);
+  }
+}
+
+// 处理网格辅助线开关
+async function handleToggleGridLines() {
+  try {
+    await invoke('save_app_config', { config: config.value });
+  } catch (e) {
+    ElMessage.error(`保存设置失败: ${e}`);
+  }
+}
+
+// 处理课程卡片不透明度变化
+async function handleCardOpacityChange() {
+  try {
+    await invoke('save_app_config', { config: config.value });
+  } catch (e) {
+    ElMessage.error(`保存设置失败: ${e}`);
+  }
+}
+
+// 处理显示教师开关
+async function handleToggleTeacher() {
+  try {
+    await invoke('save_app_config', { config: config.value });
+  } catch (e) {
+    ElMessage.error(`保存设置失败: ${e}`);
+  }
+}
+
+// 处理显示地点开关
+async function handleToggleLocation() {
+  try {
+    await invoke('save_app_config', { config: config.value });
+  } catch (e) {
+    ElMessage.error(`保存设置失败: ${e}`);
   }
 }
 
@@ -992,16 +1159,24 @@ async function saveSettings() {
 async function loadConfig() {
   try {
     const appConfig = await invoke<AppConfig>('get_app_config');
-    config.value = appConfig;
+
+    // 设置默认值并创建新对象
+    config.value = {
+      ...appConfig,
+      card_opacity: appConfig.card_opacity ?? 95,
+      show_grid_lines: appConfig.show_grid_lines ?? false,
+      show_teacher: appConfig.show_teacher ?? true,
+      show_location: appConfig.show_location ?? true,
+    };
 
     // 加载背景图
-    if (appConfig.background_image) {
+    if (config.value.background_image) {
       try {
-        const fileData = await readFile(appConfig.background_image);
+        const fileData = await readFile(config.value.background_image);
         const base64 = btoa(
           new Uint8Array(fileData).reduce((data, byte) => data + String.fromCharCode(byte), '')
         );
-        const ext = appConfig.background_image.split('.').pop()?.toLowerCase() || 'png';
+        const ext = config.value.background_image.split('.').pop()?.toLowerCase() || 'png';
         const mimeType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
         backgroundImage.value = `data:${mimeType};base64,${base64}`;
       } catch (e) {
@@ -1262,6 +1437,35 @@ html.dark .theme-toggle {
   box-shadow: var(--shadow-md);
 }
 
+.navbar-right {
+  position: absolute;
+  right: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.semester-status {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 16px;
+  backdrop-filter: var(--surface-blur);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.semester-status.not-started {
+  background-color: rgba(103, 194, 58, 0.15);
+  color: #67c23a;
+  border-color: rgba(103, 194, 58, 0.3);
+}
+
+.semester-status.ended {
+  background-color: rgba(245, 108, 108, 0.15);
+  color: #f56c6c;
+  border-color: rgba(245, 108, 108, 0.3);
+}
+
 /* 加载状态 */
 .loading {
   position: fixed;
@@ -1331,6 +1535,21 @@ html.dark .theme-toggle {
   font-size: 11px;
   margin-top: 2px;
   font-weight: 500;
+}
+
+/* 今天日期强调显示 */
+.week-bar-item.is-today {
+  background-color: rgba(64, 158, 255, 0.12);
+  border-radius: 12px;
+  font-weight: 600;
+  color: var(--primary-color);
+  transition: all 0.3s ease;
+}
+
+.week-bar-item.is-today .date {
+  color: var(--primary-color);
+  font-weight: 700;
+  font-size: 12px;
 }
 
 /* 统一对话框样式 */
@@ -1758,6 +1977,31 @@ html.dark .custom-input .el-input__wrapper.is-focus {
 .item-desc {
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+/* 开关控件项 */
+.switch-item .item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 滑块控件项 */
+.slider-item .item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item-control {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.slider-item .item-control {
+  padding: 8px 0 4px 0;
 }
 
 /* --- Schedule List (Modern) --- */

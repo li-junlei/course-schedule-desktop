@@ -117,6 +117,10 @@ pub struct AppConfig {
     pub time_tables: Option<Vec<TimeTable>>, // 新的多时间表列表
     pub edu_system_url: Option<String>, // 教务系统地址
     pub current_schedule_id: Option<String>, // 当前选中的课表ID
+    pub show_grid_lines: Option<bool>, // 显示网格辅助线
+    pub card_opacity: Option<i32>, // 课程卡片不透明度 (0-100)
+    pub show_teacher: Option<bool>, // 在卡片中显示教师
+    pub show_location: Option<bool>, // 在卡片中显示上课地点
 }
 
 /// 时间段(包含开始和结束时间)
@@ -166,6 +170,10 @@ impl Default for AppConfig {
             time_tables: Some(vec![]),
             edu_system_url: Some("https://xuanke.cufe.edu.cn/jwglxt/".to_string()),
             current_schedule_id: None,
+            show_grid_lines: Some(false),
+            card_opacity: Some(95), // 默认 95% 不透明度
+            show_teacher: Some(true), // 默认显示教师
+            show_location: Some(true), // 默认显示地点
         }
     }
 }
