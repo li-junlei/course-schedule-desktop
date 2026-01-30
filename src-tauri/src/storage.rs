@@ -145,6 +145,7 @@ impl StorageManager {
                     created_at: cached.timestamp,
                     updated_at: cached.timestamp,
                     course_count: cached.courses.len(),
+                    first_day: cached.first_day,
                 };
                 schedules.push(metadata);
             }

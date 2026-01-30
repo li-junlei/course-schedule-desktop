@@ -26,3 +26,7 @@ src-tauri/Cargo.lock
 *.njsproj
 *.sln
 *.sw?
+
+# Application generated files
+config.json
+nul

@@ -13,9 +13,7 @@
     <!-- 左侧时间栏 -->
     <div class="time-bar">
       <div v-for="(time, index) in courseTime" :key="index" class="time-slot">
-        <span v-show="index !== 4" class="period-number">
-          {{ index < 4 ? index + 1 : index }}
-        </span>
+        <span class="period-number">{{ index + 1 }}</span>
         <span class="period-time">{{ time }}</span>
       </div>
     </div>
@@ -82,17 +80,16 @@ const courseTime = computed(() => {
           // Format as "start-end"
           slots.push(`${time.start}-${time.end}`);
       } else {
-          // Default generation
+          // Default generation (continuous periods, no breaks)
           const p = i + 1;
-          let startH = 8 + p - 1;
-          if (p > 4) startH += 2; // Lunch break offset
-          if (p > 8) startH += 1; // Dinner break offset
+          // Start from 8:00, each period is 45 minutes with 10 min break
+          const startHour = 8 + Math.floor((p - 1) * 55 / 60);
+          const startMin = ((p - 1) * 55) % 60;
 
-          // Calculate end time (45 minutes later)
-          const endH = startH;
-          const endM = 45;
+          const endMin = (startMin + 45) % 60;
+          const endHour = startHour + Math.floor((startMin + 45) / 60);
 
-          slots.push(`${startH}:00-${endH}:${endM < 10 ? '0' + endM : endM}`);
+          slots.push(`${startHour}:${startMin.toString().padStart(2, '0')}-${endHour}:${endMin.toString().padStart(2, '0')}`);
       }
   }
   return slots;
@@ -203,6 +200,7 @@ function endSwipe() {
 .period-time {
   color: #999;
   font-size: 9px;
+  white-space: nowrap;
 }
 
 /* 右侧课表区域 */

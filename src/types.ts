@@ -62,4 +62,6 @@ export interface ScheduleMetadata {
   updated_at: number;
   /** 课程数量 */
   course_count: number;
+  /** 第一周第一天的时间戳 */
+  first_day?: number;
 }

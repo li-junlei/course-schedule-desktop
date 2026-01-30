@@ -136,6 +136,7 @@ pub struct ScheduleMetadata {
     pub created_at: i64,         // 创建时间
     pub updated_at: i64,         // 更新时间
     pub course_count: usize,     // 课程数量
+    pub first_day: Option<i64>,  // 第一周第一天的时间戳
 }
 
 impl Default for AppConfig {
@@ -144,9 +145,23 @@ impl Default for AppConfig {
             background_image: None,
             first_day: None,
             end_week: None,
-            max_periods: Some(13), // Default to 13 to be safe
-            period_times: None,
-            edu_system_url: None,
+            max_periods: Some(13),
+            period_times: Some(vec![
+                PeriodTime { start: "8:00".to_string(), end: "8:45".to_string() },
+                PeriodTime { start: "8:55".to_string(), end: "9:40".to_string() },
+                PeriodTime { start: "10:00".to_string(), end: "10:45".to_string() },
+                PeriodTime { start: "10:55".to_string(), end: "11:40".to_string() },
+                PeriodTime { start: "11:50".to_string(), end: "12:35".to_string() },
+                PeriodTime { start: "12:45".to_string(), end: "13:30".to_string() },
+                PeriodTime { start: "14:00".to_string(), end: "14:45".to_string() },
+                PeriodTime { start: "14:55".to_string(), end: "15:40".to_string() },
+                PeriodTime { start: "16:00".to_string(), end: "16:45".to_string() },
+                PeriodTime { start: "16:55".to_string(), end: "17:40".to_string() },
+                PeriodTime { start: "17:50".to_string(), end: "18:35".to_string() },
+                PeriodTime { start: "19:20".to_string(), end: "20:05".to_string() },
+                PeriodTime { start: "20:15".to_string(), end: "21:00".to_string() },
+            ]),
+            edu_system_url: Some("https://xuanke.cufe.edu.cn/jwglxt/".to_string()),
             current_schedule_id: None,
         }
     }
@@ -160,6 +175,7 @@ pub struct CachedSchedule {
     pub courses: Vec<Course>,
     pub timestamp: i64,
     pub expire_time: i64,
+    pub first_day: Option<i64>,  // 第一周第一天的时间戳
 }
 
 impl CachedSchedule {

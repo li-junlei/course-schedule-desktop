@@ -2,11 +2,15 @@
   <Transition name="popup">
     <div v-if="show" class="popup-overlay" @click.self="$emit('close')">
       <div class="popup-content">
-        <div class="popup-title">宿院速办</div>
+        <div class="popup-title">课程表</div>
         <div class="popup-menu">
           <div class="menu-item" @click="$emit('schedule-manage')">
             <el-icon :size="28"><Collection /></el-icon>
             <span>课表管理</span>
+          </div>
+          <div class="menu-item" @click="$emit('import-schedule')">
+            <el-icon :size="28"><Plus /></el-icon>
+            <span>导入课表</span>
           </div>
           <div class="menu-item" @click="$emit('upload-bg')">
             <el-icon :size="28"><Picture /></el-icon>
@@ -27,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { Collection, Picture, Close, Setting } from '@element-plus/icons-vue';
+import { Collection, Picture, Close, Setting, Plus } from '@element-plus/icons-vue';
 
 defineProps<{
   show: boolean;
@@ -36,6 +40,7 @@ defineProps<{
 defineEmits<{
   (e: 'close'): void;
   (e: 'schedule-manage'): void;
+  (e: 'import-schedule'): void;
   (e: 'upload-bg'): void;
   (e: 'delete-bg'): void;
   (e: 'settings'): void;

@@ -17,7 +17,8 @@ export function formatDate(date: Date): string {
  * @returns 格式化后的日期字符串
  */
 export function calculateDate(firstDay: number, targetWeek: number, targetDay: number): string {
-  const firstDate = new Date(firstDay);
+  // firstDay 是秒级时间戳，需要转换为毫秒级
+  const firstDate = new Date(firstDay * 1000);
   const targetDate = new Date(firstDate);
 
   // 计算目标日期
@@ -33,6 +34,7 @@ export function calculateDate(firstDay: number, targetWeek: number, targetDay: n
  */
 export function getCurrentWeek(firstDay: number): number {
   const now = Date.now();
-  const week = Math.floor((now - firstDay) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  // firstDay 是秒级时间戳，需要转换为毫秒级
+  const week = Math.floor((now - firstDay * 1000) / (7 * 24 * 60 * 60 * 1000)) + 1;
   return Math.max(week, 1);
 }

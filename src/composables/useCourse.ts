@@ -181,10 +181,10 @@ export function useBrowserImport() {
   const isImporting = ref(false);
 
   // 监听来自浏览器的导入事件
-  async function setupImportListener(callback: (courses: Course[]) => void) {
+  async function setupImportListener(callback: (result: { schedule_id: string; course_count: number; schedule_name: string }) => void) {
     try {
-      const unlisten = await listen<Course[]>('schedule-imported', (event) => {
-        courses.value = event.payload;
+      const unlisten = await listen<{ schedule_id: string; course_count: number; schedule_name: string }>('schedule-imported', (event) => {
+        courses.value = []; // 清空之前的课程数据
         callback(event.payload);
       });
       return unlisten;

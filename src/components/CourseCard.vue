@@ -83,7 +83,8 @@ const topPosition = computed(() => {
  */
 const leftPosition = computed(() => {
   const dayOfWeek = props.course.day_of_week;
-  return `${((dayOfWeek - 1) * 94) / 7}%`;
+  // 使用100/7与星期标签的flex:1布局完全一致
+  return `${(dayOfWeek - 1) * (100 / 7)}%`;
 });
 
 /**
@@ -119,8 +120,8 @@ function showDetails() {
 <style scoped>
 .course-card {
   position: absolute;
-  width: 14%;
-  padding: 2px 4px;
+  width: calc(100% / 7); /* 与星期标签的flex:1布局完全一致 */
+  padding: 2px;
   box-sizing: border-box;
   overflow: hidden;
   cursor: pointer;

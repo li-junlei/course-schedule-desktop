@@ -86,7 +86,7 @@ fn load_cached_schedule(schedule_id: Option<String>) -> Result<Vec<Course>, Stri
 
 /// 保存课表数据到缓存
 #[tauri::command]
-fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<String>) -> Result<String, String> {
+fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<String>, first_day: Option<i64>) -> Result<String, String> {
     let storage = StorageManager::new()?;
 
     let now = Utc::now().timestamp();
@@ -105,6 +105,7 @@ fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<S
         courses,
         timestamp: now,
         expire_time,
+        first_day,
     };
 
     storage.save_schedule(&cached)?;
@@ -112,6 +113,12 @@ fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<S
     // 更新当前选中的课表 ID
     let mut config = storage.load_config().unwrap_or_default();
     config.current_schedule_id = Some(id.clone());
+
+    // 如果提供了 first_day，也更新全局配置
+    if let Some(fd) = first_day {
+        config.first_day = Some(fd);
+    }
+
     storage.save_config(&config)?;
 
     Ok(id)
@@ -148,8 +155,49 @@ fn delete_schedule(schedule_id: String) -> Result<(), String> {
 fn switch_schedule(schedule_id: String) -> Result<(), String> {
     let storage = StorageManager::new()?;
     let mut config = storage.load_config().unwrap_or_default();
-    config.current_schedule_id = Some(schedule_id);
+    config.current_schedule_id = Some(schedule_id.clone());
+
+    // 同步课表的 first_day 到全局配置
+    let schedule = storage.load_schedule(&schedule_id)?;
+    if let Some(first_day) = schedule.first_day {
+        config.first_day = Some(first_day);
+    }
+
     storage.save_config(&config)?;
+    Ok(())
+}
+
+/// 更新课表信息（如 first_day）
+#[tauri::command]
+fn update_schedule_info(schedule_id: String, first_day: Option<i64>) -> Result<(), String> {
+    println!("更新课表信息 - schedule_id: {}, first_day: {:?}", schedule_id, first_day);
+
+    let storage = StorageManager::new()?;
+
+    // 加载课表
+    let mut cached = storage.load_schedule(&schedule_id)?;
+    println!("加载的课表 - name: {}, old_first_day: {:?}", cached.name, cached.first_day);
+
+    // 更新 first_day
+    cached.first_day = first_day;
+
+    // 保存
+    storage.save_schedule(&cached)?;
+    println!("课表已保存 - new_first_day: {:?}", cached.first_day);
+
+    // 如果这是当前选中的课表，也更新全局配置
+    let config = storage.load_config()?;
+    if let Some(ref current_id) = config.current_schedule_id {
+        if current_id == &schedule_id {
+            if let Some(fd) = first_day {
+                let mut new_config = config;
+                new_config.first_day = Some(fd);
+                storage.save_config(&new_config)?;
+                println!("全局配置已更新 - first_day: {:?}", fd);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -258,15 +306,58 @@ fn parse_html_schedule(html: String) -> Result<Vec<Course>, String> {
 
 /// 从浏览器导入课表
 #[tauri::command]
-async fn import_from_browser(app: tauri::AppHandle, html: String) -> Result<(), String> {
+async fn import_from_browser(app: tauri::AppHandle, html: String, name: Option<String>) -> Result<String, String> {
+    println!("=== 浏览器导入被调用 ===");
+    println!("HTML 长度: {} 字符", html.len());
+    println!("名称参数: {:?}", name);
+
     // 解析 HTML
     let courses = parser::parse_course_html(&html)?;
+    println!("解析到 {} 门课程", courses.len());
 
-    // 通过事件发送课程数据到前端
-    app.emit("schedule-imported", courses)
+    // 生成课表ID
+    let schedule_id = StorageManager::generate_schedule_id();
+
+    // 使用提供的名称或默认名称
+    let schedule_name = name.unwrap_or_else(|| {
+        format!("从浏览器导入 {}", chrono::Utc::now().format("%Y-%m-%d"))
+    });
+
+    println!("课表名称: {}", schedule_name);
+
+    // 保存课表
+    let storage = StorageManager::new()?;
+    let now = Utc::now().timestamp();
+    let expire_time = now + (30 * 24 * 60 * 60); // 30 天后过期
+
+    let cached = CachedSchedule {
+        id: schedule_id.clone(),
+        name: schedule_name,
+        courses,
+        timestamp: now,
+        expire_time,
+        first_day: None, // 初始为空，用户后续可以设置
+    };
+
+    storage.save_schedule(&cached)?;
+    println!("课表已保存到文件");
+
+    // 更新当前选中的课表 ID
+    let mut config = storage.load_config().unwrap_or_default();
+    config.current_schedule_id = Some(schedule_id.clone());
+    storage.save_config(&config)?;
+    println!("全局配置已更新");
+
+    // 通过事件通知前端，导入成功并返回课表ID和课程数量
+    app.emit("schedule-imported", serde_json::json!({
+        "schedule_id": schedule_id,
+        "course_count": cached.courses.len(),
+        "schedule_name": cached.name
+    }))
         .map_err(|e| format!("发送事件失败: {}", e))?;
 
-    Ok(())
+    println!("=== 浏览器导入完成 ===");
+    Ok(schedule_id)
 }
 
 // ============== Main Entry Point ==============
@@ -287,6 +378,7 @@ pub fn run() {
             list_schedules,
             delete_schedule,
             switch_schedule,
+            update_schedule_info,
             // 数据相关
             get_current_week,
             calculate_date,
@@ -299,9 +391,20 @@ pub fn run() {
             save_app_config,
             clear_all_data,
             open_login_window,
+            get_window_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// 检查窗口是否存在
+#[tauri::command]
+fn get_window_state(app: tauri::AppHandle, window_label: String) -> Result<String, String> {
+    if let Some(_window) = app.get_webview_window(&window_label) {
+        Ok("exists".to_string())
+    } else {
+        Err("Window not found".to_string())
+    }
 }
 
 /// 打开登录窗口
@@ -398,34 +501,61 @@ async fn open_login_window(app: tauri::AppHandle, url: String) -> Result<(), Str
                     try {
                         const html = document.documentElement.outerHTML;
 
-                        // 通过 Tauri 事件发送 HTML 到前端
-                        if (window.__TAURI__?.core) {
-                            btn.innerHTML = '⏳ 正在导入...';
-                            btn.style.backgroundColor = '#E6A23C';
+                        btn.innerHTML = '⏳ 正在复制...';
+                        btn.style.backgroundColor = '#E6A23C';
 
-                            // 调用 Tauri 命令发送 HTML
-                            await window.__TAURI__.core.invoke('import_from_browser', { html });
-
-                            btn.innerHTML = '✅ 导入成功！';
+                        // 尝试使用 Clipboard API
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(html);
+                            console.log('HTML 已复制到剪贴板');
+                            btn.innerHTML = '✅ 已复制！请关闭此窗口';
                             btn.style.backgroundColor = '#67C23A';
 
-                            setTimeout(() => {
-                                btn.innerHTML = '📥 导入当前课表';
-                                btn.style.backgroundColor = '#409EFF';
-                            }, 2000);
+                            // 禁用按钮，防止重复点击
+                            btn.disabled = true;
+                            btn.style.cursor = 'default';
+                            btn.onclick = null;
                         } else {
-                            // 如果 Tauri API 不可用,使用剪贴板作为后备
-                            await navigator.clipboard.writeText(html);
-                            alert('课表数据已复制到剪贴板！\n请返回软件主界面进行解析。');
+                            // 降级方案：使用传统方法
+                            const textArea = document.createElement('textarea');
+                            textArea.value = html;
+                            textArea.style.position = 'fixed';
+                            textArea.style.left = '-999999px';
+                            document.body.appendChild(textArea);
+                            textArea.select();
+
+                            try {
+                                document.execCommand('copy');
+                                console.log('HTML 已复制到剪贴板（传统方法）');
+                                btn.innerHTML = '✅ 已复制！请关闭此窗口';
+                                btn.style.backgroundColor = '#67C23A';
+                                document.body.removeChild(textArea);
+
+                                // 禁用按钮，防止重复点击
+                                btn.disabled = true;
+                                btn.style.cursor = 'default';
+                                btn.onclick = null;
+                            } catch (err) {
+                                console.error('复制失败:', err);
+                                btn.innerHTML = '❌ 复制失败';
+                                btn.style.backgroundColor = '#F56C6C';
+                                document.body.removeChild(textArea);
+
+                                setTimeout(() => {
+                                    btn.innerHTML = '📥 导入当前课表';
+                                    btn.style.backgroundColor = '#409EFF';
+                                }, 3000);
+                            }
                         }
                     } catch (err) {
-                        console.error('Import failed', err);
-                        btn.innerHTML = '❌ 导入失败';
+                        console.error('导入失败:', err);
+                        btn.innerHTML = '❌ 复制失败';
                         btn.style.backgroundColor = '#F56C6C';
+
                         setTimeout(() => {
                             btn.innerHTML = '📥 导入当前课表';
                             btn.style.backgroundColor = '#409EFF';
-                        }, 2000);
+                        }, 3000);
                     }
                 };
 
