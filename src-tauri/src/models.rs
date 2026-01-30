@@ -72,17 +72,6 @@ impl Course {
             location,
         })
     }
-
-    /// 检查课程是否在指定周次显示
-    pub fn is_visible_in_week(&self, week: i32) -> bool {
-        // 直接检查周次列表中是否包含该周
-        let in_range = self.weeks.contains(&week);
-
-        // 检查单双周 (虽然 parser 已经展开了所有周次，但保留这个逻辑可以作为二次校验)
-        let week_match = self.week_type == 0 || (self.week_type == 1 && week % 2 != 0) || (self.week_type == 2 && week % 2 == 0);
-
-        in_range && week_match
-    }
 }
 
 /// 用户凭证

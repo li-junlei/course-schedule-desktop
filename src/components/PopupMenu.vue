@@ -12,13 +12,9 @@
             <el-icon :size="28"><Plus /></el-icon>
             <span>导入课表</span>
           </div>
-          <div class="menu-item" @click="$emit('upload-bg')">
+          <div class="menu-item" @click="$emit('appearance')">
             <el-icon :size="28"><Picture /></el-icon>
-            <span>自定义背景</span>
-          </div>
-          <div class="menu-item" @click="$emit('delete-bg')">
-            <el-icon :size="28"><Close /></el-icon>
-            <span>删除背景</span>
+            <span>课表外观</span>
           </div>
           <div class="menu-item" @click="$emit('settings')">
             <el-icon :size="28"><Setting /></el-icon>
@@ -31,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { Collection, Picture, Close, Setting, Plus } from '@element-plus/icons-vue';
+import { Collection, Picture, Setting, Plus } from '@element-plus/icons-vue';
 
 defineProps<{
   show: boolean;
@@ -41,8 +37,7 @@ defineEmits<{
   (e: 'close'): void;
   (e: 'schedule-manage'): void;
   (e: 'import-schedule'): void;
-  (e: 'upload-bg'): void;
-  (e: 'delete-bg'): void;
+  (e: 'appearance'): void;
   (e: 'settings'): void;
 }>();
 </script>
@@ -54,8 +49,9 @@ defineEmits<{
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(0, 0, 0, 0.2); /* Lighter overlay */
   z-index: 1000;
+  backdrop-filter: blur(2px);
 }
 
 .popup-content {
@@ -63,46 +59,64 @@ defineEmits<{
   top: 0;
   left: 0;
   right: 0;
-  background-color: white;
-  border-radius: 0 0 16px 16px;
-  padding: 20px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background-color: var(--surface-color-strong);
+  backdrop-filter: var(--surface-blur);
+  border-radius: 0 0 24px 24px;
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .popup-title {
   text-align: center;
-  font-size: 18px;
-  font-weight: bold;
-  margin-bottom: 20px;
-  padding-top: 10px;
-  letter-spacing: 2px;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  padding-top: 12px;
+  letter-spacing: 0.5px;
+  color: var(--text-main);
+  opacity: 0.9;
 }
 
 .popup-menu {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;
-  padding: 10px 0;
+  gap: 12px;
+  padding: 0 10px 16px;
+  justify-content: center;
 }
 
 .menu-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
+  gap: 10px;
+  padding: 16px;
   cursor: pointer;
-  border-radius: 8px;
-  transition: background-color 0.2s;
-  font-size: 14px;
+  border-radius: 20px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  background-color: var(--surface-color-light);
+  border: 1px solid var(--border-color);
+  width: 80px; /* Fixed width for alignment */
 }
 
 .menu-item:hover {
-  background-color: #f5f5f5;
+  background-color: var(--surface-color-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-color);
 }
 
 .menu-item .el-icon {
-  color: #333;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.menu-item:hover .el-icon {
+  color: var(--primary-color);
 }
 
 /* 动画 */
@@ -113,7 +127,7 @@ defineEmits<{
 
 .popup-enter-active .popup-content,
 .popup-leave-active .popup-content {
-  transition: transform 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .popup-enter-from,
@@ -126,19 +140,10 @@ defineEmits<{
   transform: translateY(-100%);
 }
 
-/* 深色模式 */
+/* 深色模式适配 */
 @media (prefers-color-scheme: dark) {
-  .popup-content {
-    background-color: #1a1a1a;
-    color: #fff;
-  }
-
-  .menu-item:hover {
-    background-color: #333;
-  }
-
-  .menu-item .el-icon {
-    color: #fff;
+  .menu-item {
+    background-color: rgba(255, 255, 255, 0.05);
   }
 }
 </style>

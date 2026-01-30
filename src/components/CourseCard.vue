@@ -7,16 +7,16 @@
         left: leftPosition,
         height: cardHeight,
     }"
-    @click="showDetails"
+    @click.stop="handleClick"
   >
     <div 
       class="card-inner"
-      :style="{ 
-        backgroundColor: color,
-        alignItems: isShortCard ? 'flex-start' : 'center'
-      }"
+      :style="{ backgroundColor: color }"
     >
-      <span class="course-text">{{ course.name }}@{{ course.location }}</span>
+      <div class="card-content-wrapper">
+        <div class="course-name">{{ course.name }}</div>
+        <div class="course-location" v-if="course.location">@{{ course.location }}</div>
+      </div>
     </div>
   </div>
 </template>
@@ -53,12 +53,8 @@ const isVisible = computed(() => {
 });
 
 /**
- * 判断是否是短卡片（单节课）
+ * 此时不再需要 isShortCard 判断对齐方式，统统顶部对齐
  */
-const isShortCard = computed(() => {
-  const { periods } = props.course;
-  return isNaN(periods[0]) || !periods[1] || periods[0] === 5;
-});
 
 /**
  * 计算顶部位置
@@ -71,9 +67,7 @@ const topPosition = computed(() => {
     return '0%';
   }
 
-  // 简单线性布局: (节次 - 1) * (100 / maxPeriods)
-  // 如果需要特殊的“中午”休息区，需要更复杂的逻辑或配置
-  // 目前根据用户反馈，主要是因为12-13节无法显示，所以优先支持扩展的线性列表
+  // 简单线性布局
   const unitHeight = 100 / props.maxPeriods;
   return `${(firstPeriod - 1) * unitHeight}%`;
 });
@@ -83,7 +77,6 @@ const topPosition = computed(() => {
  */
 const leftPosition = computed(() => {
   const dayOfWeek = props.course.day_of_week;
-  // 使用100/7与星期标签的flex:1布局完全一致
   return `${(dayOfWeek - 1) * (100 / 7)}%`;
 });
 
@@ -107,55 +100,86 @@ const cardHeight = computed(() => {
 /**
  * 显示课程详情
  */
-function showDetails() {
-  ElMessage({
-    message: `教师：${props.course.teacher}\n地点：${props.course.location}`,
-    type: 'info',
-    duration: 2800,
-    showClose: true,
-  });
+const emit = defineEmits<{
+  (e: 'click', course: Course): void;
+}>();
+
+function handleClick() {
+  console.log('CourseCard clicked:', props.course.name);
+  emit('click', props.course);
 }
 </script>
 
 <style scoped>
 .course-card {
   position: absolute;
-  width: calc(100% / 7); /* 与星期标签的flex:1布局完全一致 */
-  padding: 2px;
+  width: calc(100% / 7); /* Consistent with layout */
+  padding: 1.5px; /* Tighter padding between cards */
   box-sizing: border-box;
   overflow: hidden;
   cursor: pointer;
+  z-index: 10;
 }
 
 .card-inner {
   width: 100%;
   height: 100%;
-  border-radius: 8px; /* Slightly tighter radius for mobile look */
+  border-radius: 6px; /* Slightly smaller radius for tighter look */
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
+  flex-direction: column;
+  padding: 4px 5px; /* Compact padding */
   box-sizing: border-box;
-  transition: transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); 
-  opacity: 0.92; /* Transparency */
-  backdrop-filter: blur(2px);
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  opacity: 0.95;
+  border: 1px solid rgba(255,255,255,0.15);
+  
+  /* Align top-left */
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .card-inner:hover {
-  transform: scale(1.03);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-  z-index: 10;
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 20;
+  opacity: 1;
 }
 
-.course-text {
-  display: block;
-  color: white;
+.card-content-wrapper {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.course-name {
   font-size: 11px;
-  font-weight: bold;
-  word-break: break-word;
-  text-align: center;
-  line-height: 1.3;
-  margin: 2px;
+  font-weight: 700; /* Bolder */
+  color: white;
+  line-height: 1.25;
+  /* Allow multi-line */
+  display: -webkit-box;
+  -webkit-line-clamp: 4; /* Max lines for name */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.1);
+}
+
+.course-location {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.2;
+  font-weight: 500;
+  /* Allow multi-line */
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* Limit location to 2 lines to avoid taking too much space */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 1px;
+  word-break: break-all;
 }
 </style>

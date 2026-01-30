@@ -190,9 +190,4 @@ impl EduSystemClient {
     pub fn set_cookie(&mut self, cookie: &str) {
         self.cookie = Some(cookie.to_string());
     }
-
-    /// 获取当前 Cookie
-    pub fn get_cookie(&self) -> Option<&String> {
-        self.cookie.as_ref()
-    }
 }

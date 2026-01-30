@@ -39,6 +39,7 @@
         :course="course"
         :week="week"
         :color="colors[index % colors.length]"
+        @click="onCardClick"
       />
     </div>
   </div>
@@ -67,6 +68,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'update:week', value: number): void;
+  (e: 'course-click', course: Course): void;
 }>();
 
 // Dynamic Time Slots
@@ -133,6 +135,11 @@ function handleSwipeTouch(e: TouchEvent) {
   swipeOffset.value = Math.max(-150, Math.min(150, diff));
 }
 
+function onCardClick(course: Course) {
+  console.log('CourseGrid receiving click for:', course.name);
+  emit('course-click', course);
+}
+
 function endSwipe() {
   if (!isSwiping.value) return;
   
@@ -166,20 +173,23 @@ function endSwipe() {
   height: 100%;
   user-select: none;
   cursor: grab;
+  position: relative;
 }
 
 .schedule-container:active {
   cursor: grabbing;
 }
 
-/* 左侧时间栏 */
+/* 左侧时间栏 - 悬浮透明风格 */
 .time-bar {
-  width: 6%;
-  min-width: 45px;
+  width: 48px; /* Fixed width */
+  min-width: 48px;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: rgba(255, 255, 255, 0.8);
+  background-color: transparent; /* Remove solid background */
+  z-index: 10;
+  padding-top: 4px; /* Slight offset */
 }
 
 .time-slot {
@@ -188,31 +198,42 @@ function endSwipe() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  border-bottom: 1px dashed rgba(0,0,0,0.05); /* Optional: add separator */
+  position: relative;
 }
 
 .period-number {
-  font-size: 13px;
-  font-weight: bold;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  opacity: 0.9;
+  line-height: 1.2;
 }
 
 .period-time {
-  color: #999;
-  font-size: 9px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  transform: scale(0.9);
   white-space: nowrap;
+  font-weight: 500;
 }
 
 /* 右侧课表区域 */
 .schedule-area {
   position: relative;
   flex: 1;
-  width: 94%;
+  width: calc(100% - 48px);
   height: 100%;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  
+  /* 添加水平辅助线 */
+  background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--border-color) 100%);
+  background-size: 100% v-bind(rowHeightStr);
 }
+
+/* 垂直辅助线 (Optional, can be added if needed, but clean look might be better without strong vertical lines) */
+/* .schedule-area::before { ... } */
 
 /* 假期提示 */
 .vacation {
@@ -220,21 +241,18 @@ function endSwipe() {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 28px;
-  color: #76c26b;
+  font-size: 24px;
+  color: var(--primary-color);
   text-align: center;
   width: 100%;
-  font-weight: bold;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  background-color: var(--surface-color-light);
+  padding: 20px;
+  border-radius: 20px;
+  backdrop-filter: var(--surface-blur);
+  max-width: 80%;
 }
 
-/* 深色模式 */
-@media (prefers-color-scheme: dark) {
-  .time-bar {
-    background-color: rgba(30, 30, 30, 0.8);
-  }
 
-  .period-number {
-    color: #fff;
-  }
-}
 </style>

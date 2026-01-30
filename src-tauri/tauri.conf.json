@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "course-schedule-desktop",
-        "width": 800,
-        "height": 600
+        "width": 550,
+        "height": 800
       }
     ],
     "security": {
