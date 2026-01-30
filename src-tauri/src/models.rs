@@ -98,14 +98,23 @@ pub struct LoginResponse {
     pub cookie: Option<String>,
 }
 
+/// 时间表
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeTable {
+    pub id: String,
+    pub name: String,
+    pub periods: Vec<PeriodTime>,
+}
+
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub background_image: Option<String>,
-    pub first_day: Option<i64>, // 学期第一天的时间戳
-    pub end_week: Option<i32>,  // 学期结束周次
-    pub max_periods: Option<i32>, // 最大节次 (默认11)
-    pub period_times: Option<Vec<PeriodTime>>, // 节次时间表
+    pub first_day: Option<i64>, // 全局默认第一天 (旧配置兼容)
+    pub end_week: Option<i32>,  // 全局默认结束周 (旧配置兼容)
+    pub max_periods: Option<i32>, // 全局默认最大节次 (旧配置兼容)
+    pub period_times: Option<Vec<PeriodTime>>, // 旧的时间表配置 (兼容)
+    pub time_tables: Option<Vec<TimeTable>>, // 新的多时间表列表
     pub edu_system_url: Option<String>, // 教务系统地址
     pub current_schedule_id: Option<String>, // 当前选中的课表ID
 }
@@ -126,6 +135,10 @@ pub struct ScheduleMetadata {
     pub updated_at: i64,         // 更新时间
     pub course_count: usize,     // 课程数量
     pub first_day: Option<i64>,  // 第一周第一天的时间戳
+    pub max_periods: Option<i32>, // 最大节次
+    pub weeks_count: Option<i32>, // 学期周数 (默认20)
+    pub time_table_id: Option<String>, // 关联的时间表ID
+    pub sort_index: Option<i32>, // 排序索引
 }
 
 impl Default for AppConfig {
@@ -150,6 +163,7 @@ impl Default for AppConfig {
                 PeriodTime { start: "19:20".to_string(), end: "20:05".to_string() },
                 PeriodTime { start: "20:15".to_string(), end: "21:00".to_string() },
             ]),
+            time_tables: Some(vec![]),
             edu_system_url: Some("https://xuanke.cufe.edu.cn/jwglxt/".to_string()),
             current_schedule_id: None,
         }
@@ -165,6 +179,10 @@ pub struct CachedSchedule {
     pub timestamp: i64,
     pub expire_time: i64,
     pub first_day: Option<i64>,  // 第一周第一天的时间戳
+    pub max_periods: Option<i32>, // 最大节次
+    pub weeks_count: Option<i32>, // 学期周数
+    pub time_table_id: Option<String>, // 关联的时间表ID
+    pub sort_index: Option<i32>, // 排序索引
 }
 
 impl CachedSchedule {

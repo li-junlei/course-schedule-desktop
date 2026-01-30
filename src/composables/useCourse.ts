@@ -75,16 +75,79 @@ export function useCourse() {
   /**
    * 保存课表到缓存
    */
-  async function saveScheduleCache(coursesData: Course[], name: string, scheduleId?: string): Promise<string> {
+  /**
+   * 保存课表到缓存
+   */
+  async function saveScheduleCache(
+    coursesData: Course[],
+    name: string,
+    scheduleId?: string,
+    firstDay?: number,
+    maxPeriods?: number,
+    weeksCount?: number,
+    timeTableId?: string
+  ): Promise<string> {
     try {
       const id = await invoke<string>('save_schedule_cache', {
         courses: coursesData,
         name,
-        scheduleId
+        scheduleId,
+        firstDay,
+        maxPeriods,
+        weeksCount,
+        timeTableId
       });
       return id;
     } catch (e) {
       console.error('保存缓存失败:', e);
+      throw e;
+    }
+  }
+
+  /**
+   * 更新课表信息
+   */
+  async function updateScheduleInfo(
+    scheduleId: string,
+    firstDay?: number,
+    maxPeriods?: number,
+    weeksCount?: number,
+    timeTableId?: string
+  ): Promise<void> {
+    try {
+      await invoke('update_schedule_info', {
+        scheduleId,
+        firstDay,
+        maxPeriods,
+        weeksCount,
+        timeTableId
+      });
+    } catch (e) {
+      console.error('更新课表信息失败:', e);
+      throw e;
+    }
+  }
+
+  /**
+   * 将当前课表设置应用到全部
+   */
+  async function applySettingsToAll(sourceScheduleId: string): Promise<void> {
+    try {
+      await invoke('apply_settings_to_all', { sourceScheduleId });
+    } catch (e) {
+      console.error('应用设置到全部失败:', e);
+      throw e;
+    }
+  }
+
+  /**
+   * 重新排序课表
+   */
+  async function reorderSchedules(sortedIds: string[]): Promise<void> {
+    try {
+      await invoke('reorder_schedules', { sortedIds });
+    } catch (e) {
+      console.error('重新排序失败:', e);
       throw e;
     }
   }
@@ -169,9 +232,14 @@ export function useCourse() {
     listSchedules,
     deleteSchedule,
     switchSchedule,
+    updateScheduleInfo,
+    applySettingsToAll,
+    reorderSchedules,
     maxWeek,
   };
 }
+
+// ... existing code ...
 
 /**
  * 监听浏览器导入事件

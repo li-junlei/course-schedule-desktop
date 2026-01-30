@@ -146,13 +146,30 @@ impl StorageManager {
                     updated_at: cached.timestamp,
                     course_count: cached.courses.len(),
                     first_day: cached.first_day,
+                    max_periods: cached.max_periods,
+                    weeks_count: cached.weeks_count,
+                    time_table_id: cached.time_table_id.clone(),
+                    sort_index: cached.sort_index,
                 };
                 schedules.push(metadata);
             }
         }
 
-        // 按更新时间排序（最新的在前）
-        schedules.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        // 排序规则: sort_index (升序) -> updated_at (降序)
+        schedules.sort_by(|a, b| {
+            match (a.sort_index, b.sort_index) {
+                (Some(idx_a), Some(idx_b)) => {
+                    if idx_a != idx_b {
+                        return idx_a.cmp(&idx_b);
+                    }
+                    // 索引相同，按时间倒序
+                    b.updated_at.cmp(&a.updated_at)
+                },
+                (Some(_), None) => std::cmp::Ordering::Less, // 有索引的排前面
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => b.updated_at.cmp(&a.updated_at), // 都没索引，按时间倒序
+            }
+        });
 
         Ok(schedules)
     }

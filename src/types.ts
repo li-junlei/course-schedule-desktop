@@ -29,19 +29,30 @@ export interface PeriodTime {
 }
 
 /**
+ * 时间表
+ */
+export interface TimeTable {
+  id: string;
+  name: string;
+  periods: PeriodTime[];
+}
+
+/**
  * 应用配置
  */
 export interface AppConfig {
   /** 背景图片文件名 */
   background_image?: string;
-  /** 学期第一天的时间戳 */
+  /** 全局默认第一天 (旧配置兼容) */
   first_day?: number;
-  /** 学期结束周次 */
+  /** 全局默认结束周 (旧配置兼容) */
   end_week?: number;
-  /** 最大节次 (默认13) */
+  /** 全局默认最大节次 (旧配置兼容) */
   max_periods?: number;
-  /** 节次时间表 */
+  /** 旧的时间表配置 (兼容) */
   period_times?: PeriodTime[];
+  /** 新的多时间表列表 */
+  time_tables?: TimeTable[];
   /** 教务系统地址 */
   edu_system_url?: string;
   /** 当前选中的课表ID */
@@ -64,4 +75,12 @@ export interface ScheduleMetadata {
   course_count: number;
   /** 第一周第一天的时间戳 */
   first_day?: number;
+  /** 最大节次 */
+  max_periods?: number;
+  /** 学期周数 (默认20) */
+  weeks_count?: number;
+  /** 关联的时间表ID */
+  time_table_id?: string;
+  /** 排序索引 */
+  sort_index?: number;
 }

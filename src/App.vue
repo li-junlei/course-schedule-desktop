@@ -1,4 +1,5 @@
 <template>
+  <el-config-provider :locale="zhCn">
   <div id="app" :style="{ backgroundImage: backgroundImage ? `url(${backgroundImage})` : 'none' }">
     <!-- 自定义导航栏 -->
     <div class="navbar">
@@ -102,37 +103,7 @@
           </div>
         </div>
 
-        <div class="setting-section">
-          <div class="section-title">课表显示</div>
-          <div class="setting-item">
-            <div class="setting-row">
-              <div class="setting-label">每日节数</div>
-              <el-input-number
-                v-model="tempConfig.max_periods"
-                :min="8"
-                :max="20"
-                @change="handleMaxPeriodsChange"
-                class="modern-number-input"
-                controls-position="right"
-              />
-            </div>
-            <div class="setting-desc">设置每天显示的最大课程节数</div>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">节次时间</div>
-            <div class="time-slots-container">
-              <div v-for="(time, index) in tempPeriodTimes" :key="index" class="time-slot-row">
-                <div class="slot-index">{{ index + 1 }}</div>
-                <div class="slot-inputs">
-                  <el-input v-model="time.start" placeholder="08:00" class="time-mini-input" />
-                  <span class="time-divider"></span>
-                  <el-input v-model="time.end" placeholder="08:45" class="time-mini-input" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- 课表显示设置已迁移到每个课表的独立设置中 -->
       </div>
 
       <div class="dialog-footer">
@@ -211,19 +182,42 @@
     >
       <div class="dialog-header">
         <div class="dialog-title">课表管理</div>
+        <div class="dialog-actions" style="margin-left: auto; margin-right: 12px; display: flex; gap: 8px;">
+           <el-button 
+             v-if="scheduleList.length > 1"
+             :type="isSorting ? 'success' : 'info'" 
+             link 
+             size="small"
+             @click="toggleSortMode"
+           >
+             <el-icon style="margin-right: 4px;"><component :is="isSorting ? 'Check' : 'Sort'" /></el-icon>
+             {{ isSorting ? '完成' : '排序' }}
+           </el-button>
+        </div>
         <div class="dialog-close-btn" @click="showScheduleManageDialog = false">
           <el-icon :size="20"><Close /></el-icon>
         </div>
       </div>
 
       <div class="dialog-content no-scrollbar">
-        <div class="schedule-list-container">
+        <VueDraggable 
+          class="schedule-list-container"
+          v-model="scheduleList"
+          item-key="id"
+          :disabled="!isSorting"
+          animation="200"
+          ghost-class="sortable-ghost"
+          drag-class="sortable-drag"
+          :force-fallback="true"
+        >
+          <template #item="{ element: schedule }">
             <div 
-              v-for="schedule in scheduleList"
-              :key="schedule.id"
               class="schedule-list-item"
-              :class="{ 'is-active': schedule.id === currentScheduleId }"
-              @click="schedule.id !== currentScheduleId && handleSwitchSchedule(schedule.id)"
+              :class="{ 
+                'is-active': schedule.id === currentScheduleId,
+                'is-sorting': isSorting
+              }"
+              @click="!isSorting && schedule.id !== currentScheduleId && handleSwitchSchedule(schedule.id)"
             >
               <div class="item-main">
                 <div class="item-header">
@@ -232,7 +226,6 @@
                 </div>
                 <div class="item-meta">
                   <span><el-icon><Collection /></el-icon> {{ schedule.course_count }} 门课</span>
-                  <span><el-icon><Clock /></el-icon> {{ new Date(schedule.updated_at * 1000).toLocaleDateString() }}</span>
                 </div>
               </div>
               
@@ -240,11 +233,11 @@
                 <el-button 
                   circle 
                   text 
-                  @click.stop="handleEditScheduleDate(schedule)"
+                  @click.stop="handleEditSchedule(schedule)"
                   class="action-btn"
-                  title="设置起始日期"
+                  title="编辑设置"
                 >
-                  <el-icon><Calendar /></el-icon>
+                  <el-icon><Edit /></el-icon>
                 </el-button>
                 <el-button 
                   circle 
@@ -258,11 +251,12 @@
                 </el-button>
               </div>
             </div>
-            
-            <div v-if="scheduleList.length === 0" class="empty-state">
-                <el-icon :size="48" class="empty-icon"><Collection /></el-icon>
-                <p>暂无课表数据</p>
-            </div>
+          </template>
+        </VueDraggable>
+
+        <div v-if="scheduleList.length === 0" class="empty-state">
+            <el-icon :size="48" class="empty-icon"><Collection /></el-icon>
+            <p>暂无课表数据</p>
         </div>
       </div>
       
@@ -273,7 +267,14 @@
       </div>
     </el-dialog>
 
-    <!-- 设置课表日期对话框 -->
+    <ScheduleEditDialog
+        v-model="showScheduleEditDialog"
+        :schedule-id="editingScheduleMeta?.id"
+        :initial-data="editingScheduleMeta"
+        @saved="loadScheduleList"
+    />
+
+    <!-- 设置课表日期对话框 (如果有用到的话保留，否则可以删除，此处保留防止报错) -->
     <el-dialog
       v-model="showScheduleDateDialog"
       title=""
@@ -353,11 +354,11 @@
       <CourseGrid
         :courses="courses"
         :week="currentWeek"
-        :end-week="endWeek"
+        :end-week="currentSemesterWeeks"
         :colors="courseColors"
         :bg-image="backgroundImage"
-        :max-periods="config.max_periods || 13"
-        :period-times="config.period_times"
+        :max-periods="currentMaxPeriods"
+        :period-times="currentPeriodTimes"
         @update:week="handleWeekChange"
         @course-click="handleCourseClick"
       />
@@ -431,21 +432,25 @@
       </el-icon>
     </div>
   </div>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
-import { MoreFilled, ArrowDown, Loading, CopyDocument, Plus, Picture, Delete, Close, Clock, Calendar, Warning, Collection, Sunny, Moon, Link, Upload, Timer, User, Location } from '@element-plus/icons-vue';
+import { ref, onMounted, computed, watch } from 'vue';
+import { ElMessage, ElMessageBox, ElConfigProvider } from 'element-plus';
+import zhCn from 'element-plus/es/locale/lang/zh-cn';
+import { MoreFilled, ArrowDown, Loading, CopyDocument, Plus, Picture, Delete, Close, Clock, Calendar, Warning, Collection, Sunny, Moon, Link, Upload, Timer, User, Location, Edit, Sort, Check } from '@element-plus/icons-vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
+import VueDraggable from 'vuedraggable';
 import { useCourse, useBrowserImport } from './composables/useCourse';
 import { calculateDate } from './utils/date';
 import { getShuffledColors } from './utils/color';
 import PopupMenu from './components/PopupMenu.vue';
 import WeekSelector from './components/WeekSelector.vue';
 import CourseGrid from './components/CourseGrid.vue';
+import ScheduleEditDialog from './components/ScheduleEditDialog.vue';
 import type { AppConfig, ScheduleMetadata, PeriodTime } from './types';
 
 // UI 状态
@@ -457,8 +462,11 @@ const showAppearanceDialog = ref(false);
 const showScheduleManageDialog = ref(false);
 const showScheduleDateDialog = ref(false);
 const loading = ref(false);
+const isSorting = ref(false); // 排序模式状态
+const showScheduleEditDialog = ref(false);
+const editingScheduleMeta = ref<ScheduleMetadata | undefined>(undefined);
 const currentWeek = ref(1);
-const endWeek = ref(20);
+// endWeek is now Computed: currentSemesterWeeks
 
 // 导入相关
 const htmlSource = ref('');
@@ -472,7 +480,7 @@ const tempPeriodTimes = ref<PeriodTime[]>([]); // For editing time slots
 const backgroundImage = ref('');
 
 // 课表数据和颜色
-const { courses, parseHtmlSchedule, loadCachedSchedule, saveScheduleCache, listSchedules, deleteSchedule, switchSchedule } = useCourse();
+const { courses, parseHtmlSchedule, loadCachedSchedule, saveScheduleCache, listSchedules, deleteSchedule, switchSchedule, reorderSchedules } = useCourse();
 const { setupImportListener } = useBrowserImport();
 const courseColors = getShuffledColors();
 
@@ -480,27 +488,75 @@ const courseColors = getShuffledColors();
 const scheduleList = ref<ScheduleMetadata[]>([]);
 const currentScheduleId = ref<string>();
 
-// 编辑课表
-const editingSchedule = ref<{
-  id: string;
-  name: string;
-  first_day?: number;
-  first_day_date?: string;
-}>({
-  id: '',
-  name: '',
-  first_day: undefined,
-  first_day_date: undefined,
+// Computed: 当前激活的课表元数据
+const activeSchedule = computed(() => {
+    return scheduleList.value.find(s => s.id === currentScheduleId.value);
+});
+
+// Computed: 当前使用的时间表
+const activeTimeTable = computed(() => {
+    const tableId = activeSchedule.value?.time_table_id;
+    if (tableId && config.value.time_tables) {
+        return config.value.time_tables.find(t => t.id === tableId);
+    }
+    // Fallback: use default or first or config.period_times
+    if (config.value.time_tables && config.value.time_tables.length > 0) {
+        const def = config.value.time_tables.find(t => t.id === 'default');
+        return def || config.value.time_tables[0];
+    }
+    return undefined;
+});
+
+// Computed: 当前最大节数
+const currentMaxPeriods = computed(() => {
+    // 优先使用课表设置，其次全局设置，最后默认13
+    return activeSchedule.value?.max_periods || config.value.max_periods || 13;
+});
+
+// Computed: 当前学期周数
+const currentSemesterWeeks = computed(() => {
+    return activeSchedule.value?.weeks_count || config.value.end_week || 20;
+});
+
+// Computed: 当前节次时间表
+const currentPeriodTimes = computed(() => {
+    if (activeTimeTable.value) {
+        return activeTimeTable.value.periods;
+    }
+    return config.value.period_times || [];
 });
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
+// 重新计算当前周次
+function recalculateCurrentWeek() {
+  const startTimestamp = activeSchedule.value?.first_day || config.value.first_day;
+  if (startTimestamp) {
+    const week = Math.floor((Date.now() - startTimestamp * 1000) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    // 限制在合理范围内 (或根据 activeSchedule.weeks_count)
+    const maxWeeks = currentSemesterWeeks.value || 20;
+    currentWeek.value = Math.max(Math.min(week, maxWeeks), 1);
+  }
+}
+
+// 监听 activeSchedule 或 config 变化，自动更新当前周次
+watch(
+  [() => activeSchedule.value?.first_day, () => config.value.first_day],
+  () => {
+    recalculateCurrentWeek();
+  },
+  { immediate: true }
+);
+
 // 获取日期
 function getDate(day: number): string {
-  if (!config.value.first_day) {
+  // 优先使用当前课表的设置
+  const startTimestamp = activeSchedule.value?.first_day || config.value.first_day;
+  
+  if (!startTimestamp) {
     return '--/--';
   }
-  return calculateDate(config.value.first_day, currentWeek.value, day);
+  return calculateDate(startTimestamp, currentWeek.value, day);
 }
 
 // 详情抽屉状态
@@ -560,8 +616,8 @@ function getCourseTimeText(course: any) {
 
 function getPeriodTime(period: number, isStart: boolean) {
   // Use saved times if available, else calc default
-  if (tempPeriodTimes.value[period - 1]) {
-    return isStart ? tempPeriodTimes.value[period - 1].start : tempPeriodTimes.value[period - 1].end;
+  if (currentPeriodTimes.value[period - 1]) {
+    return isStart ? currentPeriodTimes.value[period - 1].start : currentPeriodTimes.value[period - 1].end;
   }
   // Default fallback calculation matches CourseGrid logic (simplified)
   const p = period;
@@ -727,6 +783,7 @@ async function loadScheduleList() {
 
 // 切换课表
 async function handleSwitchSchedule(scheduleId: string) {
+  if (isSorting.value) return; // 排序模式下禁止切换
   try {
     await switchSchedule(scheduleId);
     await loadCachedSchedule(scheduleId);
@@ -737,6 +794,26 @@ async function handleSwitchSchedule(scheduleId: string) {
   } catch (e) {
     ElMessage.error(`切换失败: ${e}`);
   }
+}
+
+// 排序相关逻辑
+function toggleSortMode() {
+    if (isSorting.value) {
+        // 保存排序
+        saveScheduleOrder();
+    }
+    isSorting.value = !isSorting.value;
+}
+
+// 保存排序到后端
+async function saveScheduleOrder() {
+    try {
+        const ids = scheduleList.value.map(s => s.id);
+        await reorderSchedules(ids);
+        ElMessage.success('顺序已保存');
+    } catch (e) {
+        ElMessage.error(`保存顺序失败: ${e}`);
+    }
 }
 
 // 删除课表
@@ -782,7 +859,16 @@ async function handleEditScheduleDate(schedule: ScheduleMetadata) {
   showScheduleDateDialog.value = true;
 }
 
-// 保存课表日期
+// 打开编辑课表
+function handleEditSchedule(schedule: ScheduleMetadata) {
+    console.log('handleEditSchedule called with:', schedule);
+    editingScheduleMeta.value = schedule;
+    showScheduleEditDialog.value = true;
+    console.log('showScheduleEditDialog set to:', showScheduleEditDialog.value);
+    console.log('editingScheduleMeta set to:', editingScheduleMeta.value);
+}
+
+// 保存课表日期 (Deprecated, replaced by ScheduleEditDialog)
 async function handleSaveScheduleDate() {
   if (!editingSchedule.value.first_day_date) {
     ElMessage.warning('请选择日期');
@@ -882,62 +968,8 @@ async function handleDeleteBackground() {
 // 打开设置
 function openSettings() {
   showPopup.value = false;
-  tempConfig.value = { ...config.value, max_periods: config.value.max_periods || 13 };
-
-  // Initialize times
-  const max = tempConfig.value.max_periods || 13;
-  const currentTimes = config.value.period_times || [];
-  const times: PeriodTime[] = [];
-
-  for (let i = 0; i < max; i++) {
-    if (currentTimes[i]) {
-      times.push(currentTimes[i]);
-    } else {
-      // Default generation
-      const p = i + 1;
-      let startH = 8 + p - 1;
-      if (p > 4) startH += 2;
-      if (p > 8) startH += 1;
-
-      // 计算结束时间(默认每节课45分钟)
-      const endH = startH;
-      const endM = 45;
-
-      times.push({
-        start: `${startH}:00`,
-        end: `${endH}:${endM < 10 ? '0' + endM : endM}`
-      });
-    }
-  }
-  tempPeriodTimes.value = times;
-
+  tempConfig.value = { ...config.value };
   showSettingsDialog.value = true;
-}
-
-// Handle max periods change to resize array
-function handleMaxPeriodsChange(val: number) {
-    const oldTimes = [...tempPeriodTimes.value];
-    const newTimes: PeriodTime[] = [];
-    for (let i = 0; i < val; i++) {
-        if (oldTimes[i]) {
-            newTimes.push(oldTimes[i]);
-        } else {
-             // Default generation
-             const p = i + 1;
-             let startH = 8 + p - 1;
-             if (p > 4) startH += 2;
-             if (p > 8) startH += 1;
-
-             const endH = startH;
-             const endM = 45;
-
-             newTimes.push({
-               start: `${startH}:00`,
-               end: `${endH}:${endM < 10 ? '0' + endM : endM}`
-             });
-        }
-    }
-    tempPeriodTimes.value = newTimes;
 }
 
 // 保存设置
@@ -946,7 +978,6 @@ async function saveSettings() {
     const newConfig = {
         ...config.value,
         ...tempConfig.value,
-        period_times: tempPeriodTimes.value
     };
     await invoke('save_app_config', { config: newConfig });
     config.value = newConfig;
@@ -963,12 +994,6 @@ async function loadConfig() {
     const appConfig = await invoke<AppConfig>('get_app_config');
     config.value = appConfig;
 
-    // 计算当前周次（first_day 是秒级时间戳，需要转换为毫秒级）
-    if (appConfig.first_day) {
-      const week = Math.floor((Date.now() - appConfig.first_day * 1000) / (7 * 24 * 60 * 60 * 1000)) + 1;
-      currentWeek.value = Math.max(Math.min(week, 20), 1);
-    }
-
     // 加载背景图
     if (appConfig.background_image) {
       try {
@@ -982,11 +1007,6 @@ async function loadConfig() {
       } catch (e) {
         console.error('加载背景图失败:', e);
       }
-    }
-
-    // 设置结束周次
-    if (appConfig.end_week) {
-      endWeek.value = appConfig.end_week;
     }
   } catch (e) {
     console.error('加载配置失败:', e);
@@ -2032,6 +2052,32 @@ html.dark .detail-icon-box.purple { background-color: rgba(139, 92, 246, 0.2); }
   background: var(--card-bg);
   border-color: var(--primary-color);
   box-shadow: 0 0 0 1px var(--primary-color), var(--shadow-sm);
+}
+
+/* VueDraggable Styles */
+.sortable-ghost {
+  opacity: 0.4;
+  background: var(--surface-color-strong);
+  border: 1px dashed var(--primary-color);
+}
+
+.sortable-drag {
+  opacity: 1 !important;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-xl);
+  transform: scale(1.02);
+}
+
+.schedule-list-item.is-sorting {
+  cursor: grab;
+}
+
+.schedule-list-item.is-sorting:active {
+  cursor: grabbing;
+}
+
+.schedule-list-item.is-sorting .item-actions {
+  display: none !important;
 }
 
 /* Time Inputs */

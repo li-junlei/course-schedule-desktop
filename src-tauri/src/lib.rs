@@ -4,7 +4,7 @@ mod client;
 mod storage;
 
 use client::EduSystemClient;
-use models::{AppConfig, CachedSchedule, Course, ScheduleMetadata, UserCredentials};
+use models::{AppConfig, CachedSchedule, Course, ScheduleMetadata, UserCredentials, TimeTable};
 use storage::StorageManager;
 use chrono::{Utc, Duration, Datelike};
 use std::fs;
@@ -86,7 +86,15 @@ fn load_cached_schedule(schedule_id: Option<String>) -> Result<Vec<Course>, Stri
 
 /// 保存课表数据到缓存
 #[tauri::command]
-fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<String>, first_day: Option<i64>) -> Result<String, String> {
+fn save_schedule_cache(
+    courses: Vec<Course>, 
+    name: String, 
+    schedule_id: Option<String>, 
+    first_day: Option<i64>,
+    max_periods: Option<i32>,
+    weeks_count: Option<i32>,
+    time_table_id: Option<String>
+) -> Result<String, String> {
     let storage = StorageManager::new()?;
 
     let now = Utc::now().timestamp();
@@ -99,6 +107,17 @@ fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<S
         StorageManager::generate_schedule_id()
     };
 
+    // 如果是新课表，需要计算 sort_index
+    let mut sort_index = None;
+    if let Ok(existing) = storage.load_schedule(&id) {
+        sort_index = existing.sort_index;
+    } 
+    if sort_index.is_none() {
+        let current_list = storage.list_schedules()?;
+        let max_index = current_list.iter().filter_map(|s| s.sort_index).max().unwrap_or(-1);
+        sort_index = Some(max_index + 1);
+    }
+
     let cached = CachedSchedule {
         id: id.clone(),
         name,
@@ -106,6 +125,10 @@ fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<S
         timestamp: now,
         expire_time,
         first_day,
+        max_periods,
+        weeks_count,
+        time_table_id,
+        sort_index,
     };
 
     storage.save_schedule(&cached)?;
@@ -114,7 +137,7 @@ fn save_schedule_cache(courses: Vec<Course>, name: String, schedule_id: Option<S
     let mut config = storage.load_config().unwrap_or_default();
     config.current_schedule_id = Some(id.clone());
 
-    // 如果提供了 first_day，也更新全局配置
+    // 如果提供了 first_day，也更新全局配置 (兼容性)
     if let Some(fd) = first_day {
         config.first_day = Some(fd);
     }
@@ -159,42 +182,60 @@ fn switch_schedule(schedule_id: String) -> Result<(), String> {
 
     // 同步课表的 first_day 到全局配置
     let schedule = storage.load_schedule(&schedule_id)?;
-    if let Some(first_day) = schedule.first_day {
-        config.first_day = Some(first_day);
-    }
+    config.first_day = schedule.first_day;
 
     storage.save_config(&config)?;
     Ok(())
 }
 
-/// 更新课表信息（如 first_day）
+/// 重新排序课表
 #[tauri::command]
-fn update_schedule_info(schedule_id: String, first_day: Option<i64>) -> Result<(), String> {
-    println!("更新课表信息 - schedule_id: {}, first_day: {:?}", schedule_id, first_day);
+fn reorder_schedules(sorted_ids: Vec<String>) -> Result<(), String> {
+    let storage = StorageManager::new()?;
+
+    for (index, id) in sorted_ids.iter().enumerate() {
+        if let Ok(mut schedule) = storage.load_schedule(id) {
+            schedule.sort_index = Some(index as i32);
+            storage.save_schedule(&schedule)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// 更新课表信息
+#[tauri::command]
+fn update_schedule_info(
+    schedule_id: String, 
+    first_day: Option<i64>,
+    max_periods: Option<i32>,
+    weeks_count: Option<i32>,
+    time_table_id: Option<String>
+) -> Result<(), String> {
+    println!("更新课表信息 - schedule_id: {}", schedule_id);
 
     let storage = StorageManager::new()?;
 
     // 加载课表
     let mut cached = storage.load_schedule(&schedule_id)?;
-    println!("加载的课表 - name: {}, old_first_day: {:?}", cached.name, cached.first_day);
-
-    // 更新 first_day
+    
+    // 更新字段
     cached.first_day = first_day;
+    cached.max_periods = max_periods;
+    cached.weeks_count = weeks_count;
+    cached.time_table_id = time_table_id;
 
     // 保存
     storage.save_schedule(&cached)?;
-    println!("课表已保存 - new_first_day: {:?}", cached.first_day);
-
-    // 如果这是当前选中的课表，也更新全局配置
+    
+    // 如果这是当前选中的课表，也更新全局配置 (兼容性)
     let config = storage.load_config()?;
     if let Some(ref current_id) = config.current_schedule_id {
         if current_id == &schedule_id {
-            if let Some(fd) = first_day {
-                let mut new_config = config;
-                new_config.first_day = Some(fd);
-                storage.save_config(&new_config)?;
-                println!("全局配置已更新 - first_day: {:?}", fd);
-            }
+            let mut new_config = config;
+            new_config.first_day = first_day;
+            if let Some(mp) = max_periods { new_config.max_periods = Some(mp); }
+            storage.save_config(&new_config)?;
         }
     }
 
@@ -268,11 +309,26 @@ fn delete_background_image() -> Result<(), String> {
     Ok(())
 }
 
-/// 获取应用配置
+/// 获取应用配置 (含自动迁移逻辑)
 #[tauri::command]
 fn get_app_config() -> Result<AppConfig, String> {
     let storage = StorageManager::new()?;
-    let config = storage.load_config()?;
+    let mut config = storage.load_config()?;
+
+    // 自动迁移：如果 time_tables 为空但 period_times 存在，创建默认时间表
+    let has_time_tables = config.time_tables.as_ref().map_or(false, |v| !v.is_empty());
+    if !has_time_tables {
+        if let Some(ref periods) = config.period_times {
+            let default_table = TimeTable {
+                id: "default".to_string(),
+                name: "默认时间表".to_string(),
+                periods: periods.clone(),
+            };
+            config.time_tables = Some(vec![default_table]);
+            storage.save_config(&config)?;
+        }
+    }
+
     Ok(config)
 }
 
@@ -281,6 +337,86 @@ fn get_app_config() -> Result<AppConfig, String> {
 fn save_app_config(config: AppConfig) -> Result<(), String> {
     let storage = StorageManager::new()?;
     storage.save_config(&config)?;
+    Ok(())
+}
+
+/// 保存时间表
+#[tauri::command]
+fn save_time_table(time_table: TimeTable) -> Result<(), String> {
+    let storage = StorageManager::new()?;
+    let mut config = storage.load_config().unwrap_or_default();
+
+    let mut tables = config.time_tables.unwrap_or_default();
+    
+    // 如果ID已存在则更新，否则添加
+    if let Some(index) = tables.iter().position(|t| t.id == time_table.id) {
+        tables[index] = time_table;
+    } else {
+        tables.push(time_table);
+    }
+    
+    config.time_tables = Some(tables);
+    storage.save_config(&config)?;
+    Ok(())
+}
+
+/// 删除时间表
+#[tauri::command]
+fn delete_time_table(id: String) -> Result<(), String> {
+    let storage = StorageManager::new()?;
+    let mut config = storage.load_config().unwrap_or_default();
+
+    if let Some(tables) = config.time_tables {
+        let new_tables: Vec<TimeTable> = tables.into_iter().filter(|t| t.id != id).collect();
+        config.time_tables = Some(new_tables);
+        storage.save_config(&config)?;
+    }
+    Ok(())
+}
+
+/// 获取时间表列表
+#[tauri::command]
+fn list_time_tables() -> Result<Vec<TimeTable>, String> {
+    let config = get_app_config()?;
+    Ok(config.time_tables.unwrap_or_default())
+}
+
+/// 将指定课表的设置应用到所有课表
+#[tauri::command]
+fn apply_settings_to_all(source_schedule_id: String) -> Result<(), String> {
+    let storage = StorageManager::new()?;
+    
+    // 1. 获取源课表设置
+    let source = storage.load_schedule(&source_schedule_id)?;
+    // 注意：不应用 first_day，因为不同学期或不同用户的课表起始日可能不同
+    let max_periods = source.max_periods;
+    let weeks_count = source.weeks_count;
+    let time_table_id = source.time_table_id;
+    
+    // 2. 获取所有课表ID
+    let metadata_list = storage.list_schedules()?;
+    
+    // 3. 遍历更新
+    for meta in metadata_list {
+        if meta.id == source_schedule_id {
+            continue;
+        }
+        
+        let mut schedule = storage.load_schedule(&meta.id)?;
+        // schedule.first_day = first_day; // SKIP
+        schedule.max_periods = max_periods;
+        schedule.weeks_count = weeks_count;
+        schedule.time_table_id = time_table_id.clone();
+        
+        storage.save_schedule(&schedule)?;
+    }
+    
+    // 4. 更新全局配置 (如果存在相关项)
+    let mut config = storage.load_config()?;
+    // config.first_day = first_day; // SKIP
+    config.max_periods = max_periods;
+    storage.save_config(&config)?;
+    
     Ok(())
 }
 
@@ -330,13 +466,22 @@ async fn import_from_browser(app: tauri::AppHandle, html: String, name: Option<S
     let now = Utc::now().timestamp();
     let expire_time = now + (30 * 24 * 60 * 60); // 30 天后过期
 
+    // 计算 sort_index (放在最后)
+    let current_list = storage.list_schedules()?;
+    let max_index = current_list.iter().filter_map(|s| s.sort_index).max().unwrap_or(-1);
+    let sort_index = max_index + 1;
+
     let cached = CachedSchedule {
         id: schedule_id.clone(),
         name: schedule_name,
         courses,
         timestamp: now,
         expire_time,
-        first_day: None, // 初始为空，用户后续可以设置
+        first_day: None, 
+        max_periods: None,
+        weeks_count: None,
+        time_table_id: None,
+        sort_index: Some(sort_index),
     };
 
     storage.save_schedule(&cached)?;
@@ -378,7 +523,12 @@ pub fn run() {
             list_schedules,
             delete_schedule,
             switch_schedule,
+            reorder_schedules,
             update_schedule_info,
+            save_time_table,
+            delete_time_table,
+            list_time_tables,
+            apply_settings_to_all,
             // 数据相关
             get_current_week,
             calculate_date,
