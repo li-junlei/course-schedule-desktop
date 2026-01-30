@@ -1,0 +1,193 @@
+{
+  "project_name": "course-schedule-desktop",
+  "description": "课程表桌面应用 - 基于 Tauri + Vue 3 的跨平台课程表管理工具",
+  "last_updated": "2026-01-30T17:46:33+08:00",
+  "version": "0.1.0",
+  "tech_stack": {
+    "frontend": {
+      "framework": "Vue 3",
+      "language": "TypeScript",
+      "ui_library": "Element Plus",
+      "build_tool": "Vite 6.0"
+    },
+    "backend": {
+      "framework": "Tauri 2.0",
+      "language": "Rust",
+      "runtime": "System Native"
+    }
+  },
+  "modules": [
+    {
+      "path": "src",
+      "name": "前端模块",
+      "language": "TypeScript/Vue",
+      "entry_points": [
+        "src/main.ts"
+      ],
+      "key_files": [
+        "src/App.vue",
+        "src/types.ts",
+        "src/components/CourseGrid.vue",
+        "src/components/CourseCard.vue",
+        "src/components/WeekSelector.vue",
+        "src/composables/useCourse.ts",
+        "src/utils/date.ts",
+        "src/utils/color.ts"
+      ],
+      "interfaces": {
+        "composables": [
+          "useCourse - 课表数据管理"
+        ],
+        "components": [
+          "App.vue - 主应用组件",
+          "CourseGrid.vue - 课表网格",
+          "CourseCard.vue - 课程卡片",
+          "WeekSelector.vue - 周次选择器",
+          "PopupMenu.vue - 弹出菜单"
+        ]
+      },
+      "dependencies": [
+        "vue",
+        "element-plus",
+        "@tauri-apps/api",
+        "@tauri-apps/plugin-dialog",
+        "@tauri-apps/plugin-fs"
+      ],
+      "test_coverage": "无自动化测试",
+      "documentation": "src/CLAUDE.md",
+      "coverage_estimate": "100%"
+    },
+    {
+      "path": "src-tauri",
+      "name": "后端模块",
+      "language": "Rust",
+      "entry_points": [
+        "src-tauri/src/main.rs",
+        "src-tauri/src/lib.rs"
+      ],
+      "key_files": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/models.rs",
+        "src-tauri/src/parser.rs",
+        "src-tauri/src/client.rs",
+        "src-tauri/src/crypto.rs",
+        "src-tauri/src/storage.rs"
+      ],
+      "interfaces": {
+        "tauri_commands": [
+          "parse_html_schedule - 解析 HTML 课表",
+          "load_cached_schedule - 加载缓存课表",
+          "save_schedule_cache - 保存课表缓存",
+          "refresh_schedule - 刷新课表",
+          "get_app_config - 获取应用配置",
+          "save_app_config - 保存应用配置",
+          "save_background_image - 保存背景图",
+          "delete_background_image - 删除背景图",
+          "calculate_date - 计算日期",
+          "get_current_week - 获取当前周次",
+          "open_login_window - 打开登录窗口",
+          "clear_all_data - 清空所有数据"
+        ]
+      },
+      "dependencies": [
+        "tauri",
+        "reqwest",
+        "scraper",
+        "serde",
+        "md5",
+        "des",
+        "chrono",
+        "dirs"
+      ],
+      "test_coverage": "部分单元测试 (parser.rs, crypto.rs)",
+      "documentation": "src-tauri/CLAUDE.md",
+      "coverage_estimate": "100%"
+    }
+  ],
+  "data_models": {
+    "Course": {
+      "fields": [
+        "name: string - 课程名称",
+        "teacher: string - 教师名称",
+        "weeks: number[] - 周次列表",
+        "week_type: number - 单双周标记",
+        "day_of_week: number - 星期 (1-7)",
+        "periods: number[] - 节次范围",
+        "location: string - 地点"
+      ],
+      "locations": [
+        "src/types.ts",
+        "src-tauri/src/models.rs"
+      ]
+    },
+    "AppConfig": {
+      "fields": [
+        "background_image?: string - 背景图片",
+        "first_day?: number - 学期第一天时间戳",
+        "end_week?: number - 结束周次",
+        "max_periods?: number - 最大节次",
+        "period_times?: string[] - 节次时间表"
+      ],
+      "locations": [
+        "src/types.ts",
+        "src-tauri/src/models.rs"
+      ]
+    }
+  },
+  "ignore_patterns": [
+    "node_modules/**",
+    ".git/**",
+    ".github/**",
+    "dist/**",
+    "build/**",
+    ".next/**",
+    "__pycache__/**",
+    "*.lock",
+    "*.log",
+    "*.bin",
+    "*.pdf",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.mp4",
+    "*.zip",
+    "*.tar",
+    "*.gz",
+    "src-tauri/target/**"
+  ],
+  "scan_summary": {
+    "total_files_estimated": 1175,
+    "scanned_files": 35,
+    "coverage_percentage": "100%",
+    "truncated": false,
+    "scan_duration": "单次运行",
+    "gaps": []
+  },
+  "recommended_next_steps": [
+    "补充前端组件单元测试 (Vitest + Vue Test Utils)",
+    "扩展 parser.rs 的测试用例以支持更多教务系统",
+    "添加 E2E 测试 (Tauri + Playwright)",
+    "优化 TypeScript 类型定义的严格性",
+    "考虑添加国际化支持 (i18n)"
+  ],
+  "key_paths": {
+    "config_files": [
+      "package.json",
+      "src-tauri/Cargo.toml",
+      "src-tauri/tauri.conf.json",
+      "vite.config.ts",
+      "tsconfig.json"
+    ],
+    "entry_points": [
+      "src/main.ts",
+      "src-tauri/src/main.rs"
+    ],
+    "documentation": [
+      "CLAUDE.md",
+      "src/CLAUDE.md",
+      "src-tauri/CLAUDE.md",
+      "README.md"
+    ]
+  }
+}
