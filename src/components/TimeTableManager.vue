@@ -98,7 +98,7 @@ import { ref, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Edit, Delete, Loading, ArrowLeft, Close } from '@element-plus/icons-vue';
 import { useTimeTable } from '../composables/useTimeTable';
-import type { TimeTable, PeriodTime } from '../types';
+import type { TimeTable } from '../types';
 
 const props = defineProps<{
   modelValue?: string; // Currently selected ID
@@ -165,7 +165,7 @@ function addPeriod() {
     let start = "08:00";
     if (last) {
         // Simple logic to add 1 hour
-        const [h, m] = last.end.split(':').map(Number);
+        const [h, _m] = last.end.split(':').map(Number);
         const nextH = h + 1;
         start = `${nextH < 10 ? '0'+nextH : nextH}:${last.end.split(':')[1]}`; // Keep minute
     }

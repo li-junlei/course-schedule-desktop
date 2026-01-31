@@ -122,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { ArrowRight, CopyDocument } from '@element-plus/icons-vue';
 import TimeTableManager from './TimeTableManager.vue';

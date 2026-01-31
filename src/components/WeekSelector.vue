@@ -10,7 +10,7 @@
       @mousemove="onDrag"
     >
         <div
-          v-for="w in 20"
+          v-for="w in maxWeeks"
           :key="w"
           :id="`week-${w}`"
           class="week-item"
@@ -40,6 +40,7 @@ interface Props {
   show: boolean;
   week: number;
   courses: Course[];
+  maxWeeks?: number; // 最大周数，默认20
 }
 
 const props = defineProps<Props>();
@@ -47,6 +48,9 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: 'update:week', value: number): void;
 }>();
+
+// 最大周数，默认20
+const maxWeeks = computed(() => props.maxWeeks || 20);
 
 const weekListRef = ref<HTMLElement | null>(null);
 

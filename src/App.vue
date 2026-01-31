@@ -51,6 +51,7 @@
         </div>
       </div>
       <div class="dialog-content">
+        <!--
         <div class="setting-item">
             <div class="setting-label">选择解析脚本</div>
              <el-select v-model="selectedParserConfig" placeholder="请选择脚本" class="modern-input" style="width: 100%">
@@ -66,6 +67,7 @@
              <el-icon :size="48" color="var(--primary-color)"><Upload /></el-icon>
              <div class="upload-text">点击或拖拽 HTML 文件至此</div>
         </div>
+        -->
       </div>
       <div class="dialog-footer">
         <el-button @click="showImportDialog = false" class="modern-button">取消</el-button>
@@ -361,7 +363,7 @@
         @saved="loadScheduleList"
     />
 
-    <!-- 设置课表日期对话框 (如果有用到的话保留，否则可以删除，此处保留防止报错) -->
+    <!-- 设置课表日期对话框 (Deprecated, replaced by ScheduleEditDialog)
     <el-dialog
       v-model="showScheduleDateDialog"
       title=""
@@ -382,9 +384,9 @@
       <div class="dialog-content">
         <div class="setting-item">
           <div class="setting-label">课表名称</div>
-          <el-input 
-            v-model="editingSchedule.name" 
-            disabled 
+          <el-input
+            v-model="editingSchedule.name"
+            disabled
             class="modern-input"
           >
             <template #prefix><el-icon><Collection /></el-icon></template>
@@ -409,11 +411,12 @@
 
       <div class="dialog-footer">
         <el-button @click="showScheduleDateDialog = false" class="modern-button">取消</el-button>
-        <el-button type="primary" @click="handleSaveScheduleDate" class="modern-button primary">
+        <el-button type="primary" @click="_handleSaveScheduleDate" class="modern-button primary">
           保存设置
         </el-button>
       </div>
     </el-dialog>
+    -->
 
     <!-- 主内容 -->
     <div v-if="!showImportDialog" class="main-content">
@@ -422,6 +425,7 @@
         :show="showWeekSelector"
         :week="currentWeek"
         :courses="courses"
+        :max-weeks="currentSemesterWeeks"
         @update:week="handleWeekChange"
       />
 
@@ -535,19 +539,19 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { ElMessage, ElMessageBox, ElConfigProvider } from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
-import { MoreFilled, ArrowDown, Loading, CopyDocument, Plus, Picture, Delete, Close, Clock, Calendar, Warning, Collection, Sunny, Moon, Link, Upload, Timer, User, Location, Edit, Sort, Check, Grid, View } from '@element-plus/icons-vue';
+import { MoreFilled, ArrowDown, Loading, Plus, Picture, Delete, Close, Calendar, Collection, Sunny, Moon, Link, Upload, Timer, User, Location, Edit, Check, Grid, View } from '@element-plus/icons-vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import VueDraggable from 'vuedraggable';
 import { useCourse, useBrowserImport } from './composables/useCourse';
-import { calculateDate, formatDateString } from './utils/date';
+import { calculateDate } from './utils/date';
 import { getShuffledColors } from './utils/color';
 import PopupMenu from './components/PopupMenu.vue';
 import WeekSelector from './components/WeekSelector.vue';
 import CourseGrid from './components/CourseGrid.vue';
 import ScheduleEditDialog from './components/ScheduleEditDialog.vue';
-import type { AppConfig, ScheduleMetadata, PeriodTime } from './types';
+import type { AppConfig, ScheduleMetadata } from './types';
 
 // UI 状态
 const showPopup = ref(false);
@@ -556,11 +560,26 @@ const showImportDialog = ref(false);
 const showSettingsDialog = ref(false);
 const showAppearanceDialog = ref(false);
 const showScheduleManageDialog = ref(false);
-const showScheduleDateDialog = ref(false);
+// const showScheduleDateDialog = ref(false); // Unused - dialog is deprecated
 const loading = ref(false);
 const isSorting = ref(false); // 排序模式状态
 const showScheduleEditDialog = ref(false);
 const editingScheduleMeta = ref<ScheduleMetadata | undefined>(undefined);
+
+// 编辑课表日期对话框数据 (Unused - dialog is deprecated)
+// interface EditingSchedule {
+//   id: string;
+//   name: string;
+//   first_day?: number;
+//   first_day_date?: string;
+// }
+// const editingSchedule = ref<EditingSchedule>({
+//   id: '',
+//   name: '',
+//   first_day: undefined,
+//   first_day_date: undefined,
+// });
+
 const currentWeek = ref(1);
 // endWeek is now Computed: currentSemesterWeeks
 
@@ -572,7 +591,7 @@ const isImportingFromBrowser = ref(false);
 // 应用配置
 const config = ref<AppConfig>({});
 const tempConfig = ref<AppConfig>({}); // For editing in settings
-const tempPeriodTimes = ref<PeriodTime[]>([]); // For editing time slots
+// const tempPeriodTimes = ref<PeriodTime[]>([]); // For editing time slots (unused)
 const backgroundImage = ref('');
 
 // 课表数据和颜色
@@ -770,21 +789,6 @@ function handleWeekChange(week: number) {
   showWeekSelector.value = false;
 }
 
-// 读取剪贴板
-async function readClipboard() {
-    try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-            htmlSource.value = text;
-            ElMessage.success('已从剪贴板读取');
-        } else {
-            ElMessage.warning('剪贴板为空');
-        }
-    } catch (e) {
-        ElMessage.error('无法读取剪贴板，请允许权限');
-    }
-}
-
 // 打开内置浏览器
 async function openBrowser() {
     try {
@@ -857,36 +861,6 @@ async function openBrowser() {
         console.error(e);
         ElMessage.error(`打开浏览器失败: ${e}`);
     }
-}
-
-// 处理导入
-async function handleImport() {
-  if (!htmlSource.value) {
-    ElMessage.warning('请粘贴HTML源代码');
-    return;
-  }
-
-  if (!importScheduleName.value) {
-    ElMessage.warning('请输入课表名称');
-    return;
-  }
-
-  loading.value = true;
-  try {
-    await parseHtmlSchedule(htmlSource.value);
-    // 保存课表
-    await saveScheduleCache(courses.value, importScheduleName.value);
-    showImportDialog.value = false;
-    htmlSource.value = '';
-    importScheduleName.value = '';
-    ElMessage.success('导入成功');
-    loadConfig();
-    await loadScheduleList();
-  } catch (e) {
-    ElMessage.error(`导入失败: ${e}`);
-  } finally {
-    loading.value = false;
-  }
 }
 
 // 处理课表管理
@@ -969,27 +943,6 @@ async function handleNewSchedule() {
   await openBrowser();
 }
 
-// 编辑课表日期
-async function handleEditScheduleDate(schedule: ScheduleMetadata) {
-  const firstDayDate = schedule.first_day
-    ? formatDateString(new Date(schedule.first_day * 1000))
-    : undefined;
-
-  console.log('编辑课表日期:', {
-    schedule,
-    first_day_timestamp: schedule.first_day,
-    first_day_date: firstDayDate
-  });
-
-  editingSchedule.value = {
-    id: schedule.id,
-    name: schedule.name,
-    first_day: schedule.first_day,
-    first_day_date: firstDayDate,
-  };
-  showScheduleDateDialog.value = true;
-}
-
 // 打开编辑课表
 function handleEditSchedule(schedule: ScheduleMetadata) {
     console.log('handleEditSchedule called with:', schedule);
@@ -997,51 +950,6 @@ function handleEditSchedule(schedule: ScheduleMetadata) {
     showScheduleEditDialog.value = true;
     console.log('showScheduleEditDialog set to:', showScheduleEditDialog.value);
     console.log('editingScheduleMeta set to:', editingScheduleMeta.value);
-}
-
-// 保存课表日期 (Deprecated, replaced by ScheduleEditDialog)
-async function handleSaveScheduleDate() {
-  if (!editingSchedule.value.first_day_date) {
-    ElMessage.warning('请选择日期');
-    return;
-  }
-
-  try {
-    // 解析日期字符串 "YYYY-MM-DD"
-    const dateStr = editingSchedule.value.first_day_date;
-    const parts = dateStr.split('-');
-    const year = parseInt(parts[0]);
-    const month = parseInt(parts[1]) - 1; // 月份从0开始
-    const day = parseInt(parts[2]);
-
-    // 使用本地时间创建日期对象
-    const date = new Date(year, month, day);
-
-    // 获取时间戳（秒）
-    const timestamp = Math.floor(date.getTime() / 1000);
-
-    console.log('日期:', dateStr, '时间戳:', timestamp, '日期对象:', date);
-
-    await invoke('update_schedule_info', {
-      scheduleId: editingSchedule.value.id,
-      firstDay: timestamp,
-    });
-
-    // 如果是当前课表，更新配置
-    if (editingSchedule.value.id === currentScheduleId.value) {
-      config.value.first_day = timestamp;
-      // 重新计算当前周次
-      const week = Math.floor((Date.now() / 1000 - timestamp) / (7 * 24 * 60 * 60)) + 1;
-      currentWeek.value = Math.max(Math.min(week, 20), 1);
-    }
-
-    ElMessage.success('保存成功');
-    showScheduleDateDialog.value = false;
-    await loadScheduleList();
-  } catch (e) {
-    console.error('保存失败:', e);
-    ElMessage.error(`保存失败: ${e}`);
-  }
 }
 
 // 处理背景上传

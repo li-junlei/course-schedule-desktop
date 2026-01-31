@@ -46,11 +46,6 @@
         />
       </div>
 
-      <!-- 假期提示 -->
-      <div v-if="week > endWeek && courses.length > 0" class="vacation">
-        <span>放假了，出去玩吧！</span>
-      </div>
-
       <!-- 课程卡片 -->
       <CourseCard
         v-for="(course, index) in courses"
@@ -172,24 +167,24 @@ function onCardClick(course: Course) {
 
 function endSwipe() {
   if (!isSwiping.value) return;
-  
+
   isSwiping.value = false;
   isSwipingEnd.value = true;
 
   // 判断滑动方向和距离
   if (swipeOffset.value > swipeThreshold) {
     // 向右滑动 - 上一周
-    const newWeek = props.week > 1 ? props.week - 1 : 20;
+    const newWeek = props.week > 1 ? props.week - 1 : props.endWeek;
     emit('update:week', newWeek);
   } else if (swipeOffset.value < -swipeThreshold) {
     // 向左滑动 - 下一周
-    const newWeek = props.week < 20 ? props.week + 1 : 1;
+    const newWeek = props.week < props.endWeek ? props.week + 1 : 1;
     emit('update:week', newWeek);
   }
 
   // 复位
   swipeOffset.value = 0;
-  
+
   setTimeout(() => {
     isSwipingEnd.value = false;
   }, 300);
@@ -295,25 +290,5 @@ function endSwipe() {
   top: 0;
   border-left: 2px dashed var(--border-color);
 }
-
-/* 假期提示 */
-.vacation {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 24px;
-  color: var(--primary-color);
-  text-align: center;
-  width: 100%;
-  font-weight: 600;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  background-color: var(--surface-color-light);
-  padding: 20px;
-  border-radius: 20px;
-  backdrop-filter: var(--surface-blur);
-  max-width: 80%;
-}
-
 
 </style>
