@@ -188,6 +188,13 @@ impl Default for AppConfig {
                     url: "https://xuanke.cufe.edu.cn/jwglxt/".to_string(),
                     parser_type: "cufe_default".to_string(),
                     enabled: true,
+                },
+                EduSystem {
+                    id: "zju".to_string(),
+                    name: "浙江大学".to_string(),
+                    url: "https://zdbk.zju.edu.cn/jwglxt/".to_string(),
+                    parser_type: "zju_default".to_string(),
+                    enabled: true,
                 }
             ]),
             last_edu_system_id: Some("cufe".to_string()),

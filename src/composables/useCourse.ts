@@ -155,11 +155,14 @@ export function useCourse() {
   /**
    * 解析 HTML 获取课表
    */
-  async function parseHtmlSchedule(html: string): Promise<void> {
+  async function parseHtmlSchedule(html: string, parserType?: string): Promise<void> {
     loading.value = true;
     error.value = null;
     try {
-      const result = await invoke<Course[]>('parse_html_schedule', { html });
+      const result = await invoke<Course[]>('parse_html_schedule', {
+        html,
+        parserType: parserType || 'cufe_default'
+      });
       courses.value = result;
     } catch (e) {
       error.value = String(e);

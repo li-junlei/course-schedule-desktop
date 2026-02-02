@@ -3,7 +3,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use crate::models::Course;
 
-/// 解析HTML课程表
+/// 解析HTML课程表（中央财经大学）
 pub fn parse_course_html(html_content: &str) -> Result<Vec<Course>, String> {
     let document = Html::parse_document(html_content);
 
@@ -240,6 +240,349 @@ fn parse_course_cell(
         periods,
         location: classroom,
     })
+}
+
+/// 解析浙江大学课程表 HTML
+/// 严格按照 C:\project\zjucourses\extract_schedule.py 的逻辑实现
+pub fn parse_zju_html(html_content: &str) -> Result<Vec<Course>, String> {
+    let document = Html::parse_document(html_content);
+
+    // 查找课表表格 ID="kbgrid_table"
+    let table_sel = Selector::parse("table#kbgrid_table").unwrap();
+    let table = document
+        .select(&table_sel)
+        .next()
+        .ok_or("未找到浙江大学课表表格 (table#kbgrid_table)")?;
+
+    let td_selector = Selector::parse("td[id]").unwrap();
+    let a_selector = Selector::parse("a[onclick*='showCourseInfo2']").unwrap();
+    let font_selector = Selector::parse("font[color='blue']").unwrap();
+
+    // 存储原始课程记录（包含单双周）
+    let mut raw_courses: Vec<RawZJUCourse> = Vec::new();
+    let mut processed_cells: HashMap<String, bool> = HashMap::new();
+
+    // 遍历所有包含课程的单元格
+    for td in table.select(&td_selector) {
+        let cell_id = td.value().attr("id").unwrap_or("");
+
+        // 跳过已处理的单元格
+        if processed_cells.contains_key(cell_id) {
+            continue;
+        }
+
+        // 解析单元格 ID：格式为 {星期}-{单双周}-{节次}
+        // 例如：2-1-1 表示 周二-双周-第1节
+        let parts: Vec<&str> = cell_id.split('-').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+
+        let weekday: i32 = parts[0].parse().unwrap_or(0);
+        let parity_code: i32 = parts[1].parse().unwrap_or(0);
+        let period: i32 = parts[2].parse().unwrap_or(0);
+
+        if weekday == 0 || period == 0 {
+            continue;
+        }
+
+        // 0=单周, 1=双周
+        let parity_str = if parity_code == 0 { "单" } else { "双" };
+
+        // 查找课程链接
+        if let Some(course_link) = td.select(&a_selector).next() {
+            if let Some(font_tag) = course_link.select(&font_selector).next() {
+                // 获取课程信息文本
+                let text_lines: Vec<String> = font_tag
+                    .text()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if text_lines.len() < 2 {
+                    continue;
+                }
+
+                let course_name = text_lines[0].clone();
+                let week_info = &text_lines[1];
+                let teacher = if text_lines.len() > 2 {
+                    text_lines[2].clone()
+                } else {
+                    "未指定".to_string()
+                };
+                let location = if text_lines.len() > 3 {
+                    text_lines[3].clone()
+                } else {
+                    "未指定".to_string()
+                };
+
+                // 解析周次信息，如 "秋冬{第1-8周|2节/双周}"
+                let (weeks_str, frequency) = parse_zju_week_info(week_info);
+
+                // 检查 colspan 和 rowspan
+                let colspan = td
+                    .value()
+                    .attr("colspan")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(1);
+                let rowspan = td
+                    .value()
+                    .attr("rowspan")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(1);
+
+                // 【关键】确定需要生成的单双周列表（严格按照 Python 逻辑）
+                // Python: if colspan == 2 and '/周' in frequency and '/双周' not in frequency:
+                let parity_list: Vec<&str> =
+                    if colspan == 2 && frequency.contains("节/周") && !frequency.contains("双周") {
+                        // 每周都上，生成单周和双周两条记录
+                        vec!["单", "双"]
+                    } else {
+                        // 只按实际单双周生成
+                        vec![parity_str]
+                    };
+
+                // 确定节次范围（处理 rowspan）
+                let mut period_list: Vec<i32> = Vec::new();
+                for r in 0..rowspan {
+                    period_list.push(period + r as i32);
+                }
+
+                // 为每个(单双周, 节次)组合生成记录（Python: for p in parity_list: for per in period_list）
+                for p in &parity_list {
+                    for per in &period_list {
+                        raw_courses.push(RawZJUCourse {
+                            course_name: course_name.clone(),
+                            weekday,
+                            period: *per,
+                            weeks: weeks_str.clone(),
+                            parity: p.to_string(),
+                            _frequency: frequency.clone(),
+                            teacher: teacher.clone(),
+                            location: location.clone(),
+                        });
+                    }
+                }
+
+                // 标记已处理的单元格
+                processed_cells.insert(cell_id.to_string(), true);
+
+                // 标记被合并的单元格（Python: merged_id = f"{base_parts[0]}-{int(base_parts[1]) + c}-{int(base_parts[2]) + r}"）
+                if rowspan > 1 || colspan > 1 {
+                    let base_parts: Vec<&str> = cell_id.split('-').collect();
+                    if let (Ok(w), Ok(p_code)) = (
+                        base_parts[0].parse::<i32>(),
+                        base_parts[1].parse::<i32>(),
+                    ) {
+                        for r in 0..rowspan {
+                            for c in 0..colspan {
+                                if r == 0 && c == 0 {
+                                    continue;
+                                }
+                                let merged_id = format!("{}-{}-{}", w, p_code + c as i32, period + r as i32);
+                                processed_cells.insert(merged_id, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 合并记录并格式化（Python: merge_and_format）
+    let merged_courses = merge_and_format_zju(raw_courses)?;
+
+    Ok(merged_courses)
+}
+
+/// 浙江大学原始课程记录（对应 Python 脚本中的提取阶段）
+#[derive(Debug, Clone)]
+struct RawZJUCourse {
+    course_name: String,
+    weekday: i32,
+    period: i32,
+    weeks: String,
+    parity: String,
+    _frequency: String, // 保留用于逻辑判断，但不直接使用
+    teacher: String,
+    location: String,
+}
+
+/// 合并并格式化浙江大学课程（Python: merge_and_format）
+fn merge_and_format_zju(raw_courses: Vec<RawZJUCourse>) -> Result<Vec<Course>, String> {
+    // 第一步：按课程名称、星期、地点、教师分组（不含节次）
+    // Python: key = (course['course_name'], course['weekday'], course['location'], course['teacher'])
+    let mut course_groups: HashMap<String, Vec<&RawZJUCourse>> = HashMap::new();
+
+    for course in &raw_courses {
+        let key = format!(
+            "{}|{}|{}|{}",
+            course.course_name, course.weekday, course.location, course.teacher
+        );
+
+        course_groups
+            .entry(key)
+            .or_insert_with(Vec::new)
+            .push(course);
+    }
+
+    // 第二步：对每个课程组进行处理
+    let mut result = Vec::new();
+    for (_key, courses) in course_groups.iter() {
+        // 展开周数并合并（Python: groups[key]['weeks_list'].extend(WeekExpander.expand_weeks(...))）
+        let mut weeks_list: Vec<i32> = Vec::new();
+        for course in courses {
+            let expanded = expand_zju_weeks(&course.weeks, &course.parity);
+            weeks_list.extend(expanded);
+        }
+        weeks_list.sort();
+        weeks_list.dedup();
+
+        // 计算 week_type（如果周数是连续的则设为0=全周）
+        let week_type = if weeks_list.len() > 1 {
+            let is_continuous = weeks_list.windows(2).all(|w| w[1] == w[0] + 1);
+            if is_continuous {
+                0 // 全周
+            } else {
+                // 根据第一个课程的 parity 判断
+                if courses[0].parity == "单" {
+                    1
+                } else {
+                    2
+                }
+            }
+        } else {
+            0
+        };
+
+        // 【关键】查找相同课程的所有节次（Python: all_periods = [...]）
+        let mut all_periods: Vec<i32> = courses.iter().map(|c| c.period).collect();
+        all_periods.sort();
+        all_periods.dedup();
+
+        // 计算节次范围（Python: period_range）
+        // Python: if len(all_periods) == 1: period_range = f"{all_periods[0]}-{all_periods[0] + 1}节"
+        //       else: period_range = f"{all_periods[0]}-{all_periods[-1]}节"
+        let periods = if all_periods.len() == 1 {
+            // 单个节次，一节课通常是连续两小节
+            vec![all_periods[0], all_periods[0] + 1]
+        } else {
+            // 多个节次，直接取最小到最大
+            (all_periods[0]..=all_periods[all_periods.len() - 1]).collect()
+        };
+
+        let course = Course {
+            name: courses[0].course_name.clone(),
+            teacher: courses[0].teacher.clone(),
+            weeks: weeks_list,
+            week_type,
+            day_of_week: courses[0].weekday,
+            periods,
+            location: courses[0].location.clone(),
+        };
+        result.push(course);
+    }
+
+    // 去重（Python: unique_result）
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unique_result = Vec::new();
+    for course in result {
+        let key = format!(
+            "{}|{}|{:?}|{}",
+            course.day_of_week, course.name, course.periods, course.location
+        );
+        if !seen.contains(&key) {
+            seen.insert(key);
+            unique_result.push(course);
+        }
+    }
+
+    Ok(unique_result)
+}
+
+/// 解析浙江大学周次信息
+/// 输入如："秋冬{第1-8周|2节/双周}"
+/// 返回：("第1-8周", "2节/双周")
+fn parse_zju_week_info(text: &str) -> (String, String) {
+    let week_re = Regex::new(r"第(\d+)-?(\d*)周").unwrap();
+    let freq_re = Regex::new(r"(\d+)节/(周|双周)").unwrap();
+
+    let weeks = week_re
+        .captures(text)
+        .map(|cap| {
+            let start = cap.get(1).map(|m| m.as_str()).unwrap_or("1");
+            let end = cap.get(2).map(|m| m.as_str()).filter(|s| !s.is_empty());
+            match end {
+                Some(e) => format!("第{}-{}周", start, e),
+                None => format!("第{}周", start),
+            }
+        })
+        .unwrap_or_default();
+
+    let frequency = freq_re
+        .captures(text)
+        .map(|cap| {
+            let count = cap.get(1).map(|m| m.as_str()).unwrap_or("2");
+            let unit = cap.get(2).map(|m| m.as_str()).unwrap_or("周");
+            format!("{}节/{}", count, unit)
+        })
+        .unwrap_or_default();
+
+    (weeks, frequency)
+}
+
+/// 展开浙江大学周次字符串
+/// 输入如："第1-8周"，parity="单"
+/// 返回：[1, 3, 5, 7]
+fn expand_zju_weeks(weeks_str: &str, parity: &str) -> Vec<i32> {
+    let clean_str = weeks_str.replace("第", "").replace("周", "").trim().to_string();
+
+    let (start, end) = if clean_str.contains('-') {
+        let parts: Vec<&str> = clean_str.split('-').collect();
+        let start_val = parts[0].parse().unwrap_or(1);
+        let end_val = if parts.len() > 1 {
+            parts[1].parse().unwrap_or(start_val)
+        } else {
+            start_val
+        };
+        (start_val, end_val)
+    } else {
+        let val = clean_str.parse().unwrap_or(1);
+        (val, val)
+    };
+
+    let mut weeks = Vec::new();
+
+    if parity == "单" {
+        // 单周：1, 3, 5, 7...
+        let mut w = if start % 2 == 1 { start } else { start + 1 };
+        while w <= end {
+            weeks.push(w);
+            w += 2;
+        }
+    } else if parity == "双" {
+        // 双周：2, 4, 6, 8...
+        let mut w = if start % 2 == 0 { start } else { start + 1 };
+        while w <= end {
+            weeks.push(w);
+            w += 2;
+        }
+    } else {
+        // 全周
+        for w in start..=end {
+            weeks.push(w);
+        }
+    }
+
+    weeks
+}
+
+/// 根据解析器类型解析 HTML
+pub fn parse_html_with_parser(html_content: &str, parser_type: &str) -> Result<Vec<Course>, String> {
+    match parser_type {
+        "zju_default" => parse_zju_html(html_content),
+        _ => parse_course_html(html_content), // 默认使用中央财经大学解析器
+    }
 }
 
 #[cfg(test)]

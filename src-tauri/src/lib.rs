@@ -8,6 +8,7 @@ use models::{AppConfig, CachedSchedule, Course, ScheduleMetadata, UserCredential
 use storage::StorageManager;
 use chrono::{Utc, Duration, Datelike};
 use std::fs;
+use std::collections::HashSet;
 use tauri::{Manager, Emitter};
 
 // ============== Tauri Commands ==============
@@ -329,29 +330,64 @@ fn get_app_config() -> Result<AppConfig, String> {
         }
     }
 
-    // 自动迁移：如果 edu_systems 为空，添加默认配置
-    let has_edu_systems = config.edu_systems.as_ref().map_or(false, |v| !v.is_empty());
-    if !has_edu_systems {
-        use crate::models::EduSystem;
+    // 自动迁移：智能更新 edu_systems
+    use crate::models::EduSystem;
 
-        // 智能迁移：检查旧的 edu_system_url 是否匹配已知系统
-        let mut default_system = EduSystem {
+    // 定义所有默认的教务系统
+    let default_systems = vec![
+        EduSystem {
             id: "cufe".to_string(),
             name: "中央财经大学".to_string(),
             url: "https://xuanke.cufe.edu.cn/jwglxt/".to_string(),
             parser_type: "cufe_default".to_string(),
             enabled: true,
-        };
+        },
+        EduSystem {
+            id: "zju".to_string(),
+            name: "浙江大学".to_string(),
+            url: "https://zdbk.zju.edu.cn/jwglxt/".to_string(),
+            parser_type: "zju_default".to_string(),
+            enabled: true,
+        },
+    ];
 
-        // 如果有旧配置且包含 cufe URL，保留用户的 URL
-        if let Some(ref old_url) = config.edu_system_url {
-            if old_url.contains("cufe.edu.cn") {
-                default_system.url = old_url.clone();
+    let mut needs_save = false;
+    let mut current_systems = config.edu_systems.take().unwrap_or_default();
+
+    // 构建现有系统的 ID 集合
+    let existing_ids: HashSet<String> =
+        current_systems.iter().map(|s| s.id.clone()).collect();
+
+    // 添加缺失的默认系统
+    for default_system in default_systems {
+        if !existing_ids.contains(&default_system.id) {
+            println!("添加新的教务系统: {}", default_system.name);
+            current_systems.push(default_system);
+            needs_save = true;
+        }
+    }
+
+    // 如果有旧配置且包含 cufe URL，保留用户的 URL
+    if let Some(ref old_url) = config.edu_system_url {
+        if old_url.contains("cufe.edu.cn") {
+            if let Some(cufe_system) = current_systems.iter_mut().find(|s| s.id == "cufe") {
+                if cufe_system.url != *old_url {
+                    cufe_system.url = old_url.clone();
+                    needs_save = true;
+                }
             }
         }
+    }
 
-        config.edu_systems = Some(vec![default_system]);
-        config.last_edu_system_id = Some("cufe".to_string());
+    // 确保 last_edu_system_id 有值
+    if config.last_edu_system_id.is_none() && !current_systems.is_empty() {
+        config.last_edu_system_id = Some(current_systems[0].id.clone());
+        needs_save = true;
+    }
+
+    config.edu_systems = Some(current_systems);
+
+    if needs_save {
         storage.save_config(&config)?;
     }
 
@@ -462,19 +498,22 @@ mod parser;
 
 /// 解析 HTML 课表
 #[tauri::command]
-fn parse_html_schedule(html: String) -> Result<Vec<Course>, String> {
-    parser::parse_course_html(&html)
+fn parse_html_schedule(html: String, parser_type: Option<String>) -> Result<Vec<Course>, String> {
+    let parser = parser_type.as_deref().unwrap_or("cufe_default");
+    parser::parse_html_with_parser(&html, parser)
 }
 
 /// 从浏览器导入课表
 #[tauri::command]
-async fn import_from_browser(app: tauri::AppHandle, html: String, name: Option<String>) -> Result<String, String> {
+async fn import_from_browser(app: tauri::AppHandle, html: String, name: Option<String>, parser_type: Option<String>) -> Result<String, String> {
     println!("=== 浏览器导入被调用 ===");
     println!("HTML 长度: {} 字符", html.len());
     println!("名称参数: {:?}", name);
+    println!("解析器类型: {:?}", parser_type);
 
     // 解析 HTML
-    let courses = parser::parse_course_html(&html)?;
+    let parser = parser_type.as_deref().unwrap_or("cufe_default");
+    let courses = parser::parse_html_with_parser(&html, parser)?;
     println!("解析到 {} 门课程", courses.len());
 
     // 生成课表ID

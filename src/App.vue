@@ -542,7 +542,7 @@ import WeekSelector from './components/WeekSelector.vue';
 import CourseGrid from './components/CourseGrid.vue';
 import ScheduleEditDialog from './components/ScheduleEditDialog.vue';
 import ImportScheduleDialog from './components/ImportScheduleDialog.vue';
-import type { AppConfig, ScheduleMetadata } from './types';
+import type { AppConfig, ScheduleMetadata, EduSystem } from './types';
 
 // UI 状态
 const showPopup = ref(false);
@@ -577,6 +577,7 @@ const currentWeek = ref(1);
 // 导入相关
 const htmlSource = ref('');
 const importScheduleName = ref('');
+const selectedEduSystem = ref<EduSystem | null>(null); // 选中的教务系统
 const isImportingFromBrowser = ref(false);
 
 // 应用配置
@@ -790,8 +791,9 @@ async function openBrowser(systemId: string, scheduleName: string) {
             return;
         }
 
-        // 保存课表名称
+        // 保存课表名称和选中的教务系统
         importScheduleName.value = scheduleName;
+        selectedEduSystem.value = system;
 
         // 使用选中的教务系统 URL
         await invoke('open_login_window', { url: system.url });
@@ -827,8 +829,9 @@ async function openBrowser(systemId: string, scheduleName: string) {
                     // 使用用户输入的名称导入
                     loading.value = true;
                     try {
-                        // 解析 HTML
-                        await parseHtmlSchedule(text);
+                        // 解析 HTML（使用选中的教务系统的 parser_type）
+                        const parserType = selectedEduSystem.value?.parser_type || 'cufe_default';
+                        await parseHtmlSchedule(text, parserType);
 
                         // 验证是否解析出课程
                         if (!courses.value || courses.value.length === 0) {

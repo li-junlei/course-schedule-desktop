@@ -124,7 +124,7 @@ const emit = defineEmits<{
   (e: 'deleted'): void;
 }>();
 
-const { timeTables, loading, listTimeTables, saveTimeTable, deleteTimeTable } = useTimeTable();
+const { timeTables, listTimeTables, saveTimeTable, deleteTimeTable } = useTimeTable();
 
 const showEditDialog = ref(false);
 const isCreating = ref(false);
