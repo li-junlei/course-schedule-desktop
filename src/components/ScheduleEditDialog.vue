@@ -112,9 +112,11 @@
         class="custom-dialog"
         style="max-width: 480px; height: 600px;"
     >
-        <TimeTableManager 
-            v-model="form.timeTableId" 
+        <TimeTableManager
+            v-model="form.timeTableId"
             @select="handleTimeTableSelect"
+            @saved="handleTimeTableSaved"
+            @deleted="handleTimeTableSaved"
         />
     </el-dialog>
 
@@ -207,6 +209,11 @@ function handleTimeTableSelect(table: TimeTable) {
         form.value.timeTableId = table.id;
         showTimeTableManager.value = false;
     }
+}
+
+// 处理时间表保存事件，刷新列表
+async function handleTimeTableSaved() {
+    await listTimeTables();
 }
 
 async function handleSave() {

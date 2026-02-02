@@ -329,6 +329,32 @@ fn get_app_config() -> Result<AppConfig, String> {
         }
     }
 
+    // 自动迁移：如果 edu_systems 为空，添加默认配置
+    let has_edu_systems = config.edu_systems.as_ref().map_or(false, |v| !v.is_empty());
+    if !has_edu_systems {
+        use crate::models::EduSystem;
+
+        // 智能迁移：检查旧的 edu_system_url 是否匹配已知系统
+        let mut default_system = EduSystem {
+            id: "cufe".to_string(),
+            name: "中央财经大学".to_string(),
+            url: "https://xuanke.cufe.edu.cn/jwglxt/".to_string(),
+            parser_type: "cufe_default".to_string(),
+            enabled: true,
+        };
+
+        // 如果有旧配置且包含 cufe URL，保留用户的 URL
+        if let Some(ref old_url) = config.edu_system_url {
+            if old_url.contains("cufe.edu.cn") {
+                default_system.url = old_url.clone();
+            }
+        }
+
+        config.edu_systems = Some(vec![default_system]);
+        config.last_edu_system_id = Some("cufe".to_string());
+        storage.save_config(&config)?;
+    }
+
     Ok(config)
 }
 

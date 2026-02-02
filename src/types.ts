@@ -38,6 +38,22 @@ export interface TimeTable {
 }
 
 /**
+ * 教务系统配置
+ */
+export interface EduSystem {
+  /** 系统唯一标识 */
+  id: string;
+  /** 系统显示名称 */
+  name: string;
+  /** 教务系统 URL */
+  url: string;
+  /** 解析器类型 */
+  parser_type: string;
+  /** 是否启用 */
+  enabled: boolean;
+}
+
+/**
  * 应用配置
  */
 export interface AppConfig {
@@ -53,8 +69,12 @@ export interface AppConfig {
   period_times?: PeriodTime[];
   /** 新的多时间表列表 */
   time_tables?: TimeTable[];
-  /** 教务系统地址 */
+  /** 教务系统地址 (deprecated, 使用 edu_systems) */
   edu_system_url?: string;
+  /** 支持的教务系统列表 */
+  edu_systems?: EduSystem[];
+  /** 用户上次选择的教务系统 ID */
+  last_edu_system_id?: string;
   /** 当前选中的课表ID */
   current_schedule_id?: string;
   /** 显示网格辅助线 */

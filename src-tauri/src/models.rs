@@ -106,6 +106,16 @@ pub struct TimeTable {
     pub periods: Vec<PeriodTime>,
 }
 
+/// 教务系统配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EduSystem {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub parser_type: String,
+    pub enabled: bool,
+}
+
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -115,7 +125,9 @@ pub struct AppConfig {
     pub max_periods: Option<i32>, // 全局默认最大节次 (旧配置兼容)
     pub period_times: Option<Vec<PeriodTime>>, // 旧的时间表配置 (兼容)
     pub time_tables: Option<Vec<TimeTable>>, // 新的多时间表列表
-    pub edu_system_url: Option<String>, // 教务系统地址
+    pub edu_system_url: Option<String>, // 教务系统地址 (deprecated, 使用 edu_systems)
+    pub edu_systems: Option<Vec<EduSystem>>, // 支持的教务系统列表
+    pub last_edu_system_id: Option<String>, // 用户上次选择的教务系统 ID
     pub current_schedule_id: Option<String>, // 当前选中的课表ID
     pub show_grid_lines: Option<bool>, // 显示网格辅助线
     pub card_opacity: Option<i32>, // 课程卡片不透明度 (0-100)
@@ -169,6 +181,16 @@ impl Default for AppConfig {
             ]),
             time_tables: Some(vec![]),
             edu_system_url: Some("https://xuanke.cufe.edu.cn/jwglxt/".to_string()),
+            edu_systems: Some(vec![
+                EduSystem {
+                    id: "cufe".to_string(),
+                    name: "中央财经大学".to_string(),
+                    url: "https://xuanke.cufe.edu.cn/jwglxt/".to_string(),
+                    parser_type: "cufe_default".to_string(),
+                    enabled: true,
+                }
+            ]),
+            last_edu_system_id: Some("cufe".to_string()),
             current_schedule_id: None,
             show_grid_lines: Some(false),
             card_opacity: Some(95), // 默认 95% 不透明度

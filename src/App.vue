@@ -93,23 +93,6 @@
       </div>
 
       <div class="dialog-content no-scrollbar">
-        <div class="setting-section">
-          <div class="section-title">教务系统</div>
-          <div class="setting-item">
-            <div class="setting-label">系统地址</div>
-            <el-input
-              v-model="tempConfig.edu_system_url"
-              placeholder="例如：https://jwgl.xxx.edu.cn"
-              class="modern-input"
-            >
-              <template #prefix>
-                <el-icon><Link /></el-icon>
-              </template>
-            </el-input>
-            <div class="setting-desc">填写后打开浏览器将直接跳转到该地址</div>
-          </div>
-        </div>
-
         <!-- 课表显示设置已迁移到每个课表的独立设置中 -->
       </div>
 
@@ -363,6 +346,13 @@
         @saved="loadScheduleList"
     />
 
+    <ImportScheduleDialog
+        v-model="showImportDialog"
+        :edu-systems="config.edu_systems || []"
+        :last-selected-id="config.last_edu_system_id"
+        @confirm="handleConfirmImport"
+    />
+
     <!-- 设置课表日期对话框 (Deprecated, replaced by ScheduleEditDialog)
     <el-dialog
       v-model="showScheduleDateDialog"
@@ -537,9 +527,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import { ElMessage, ElMessageBox, ElConfigProvider } from 'element-plus';
+import { ElMessage, ElConfigProvider } from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
-import { MoreFilled, ArrowDown, Loading, Plus, Picture, Delete, Close, Calendar, Collection, Sunny, Moon, Link, Upload, Timer, User, Location, Edit, Check, Grid, View } from '@element-plus/icons-vue';
+import { MoreFilled, ArrowDown, Loading, Plus, Picture, Delete, Close, Calendar, Collection, Sunny, Moon, Upload, Timer, User, Location, Edit, Check, Grid, View } from '@element-plus/icons-vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
@@ -551,6 +541,7 @@ import PopupMenu from './components/PopupMenu.vue';
 import WeekSelector from './components/WeekSelector.vue';
 import CourseGrid from './components/CourseGrid.vue';
 import ScheduleEditDialog from './components/ScheduleEditDialog.vue';
+import ImportScheduleDialog from './components/ImportScheduleDialog.vue';
 import type { AppConfig, ScheduleMetadata } from './types';
 
 // UI 状态
@@ -790,30 +781,20 @@ function handleWeekChange(week: number) {
 }
 
 // 打开内置浏览器
-async function openBrowser() {
+async function openBrowser(systemId: string, scheduleName: string) {
     try {
-        // 先让用户输入课表名称
-        const { value } = await ElMessageBox.prompt('请输入课表名称：', '导入课表', {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            inputValue: `从浏览器导入 ${new Date().toLocaleDateString()}`,
-            inputPattern: /\S+/,
-            inputErrorMessage: '课表名称不能为空'
-        }).catch(() => {
-            // 用户取消
-            return { value: null };
-        });
-
-        if (!value) {
-            return; // 用户取消了
+        // 查找选中的教务系统
+        const system = config.value.edu_systems?.find(s => s.id === systemId);
+        if (!system) {
+            ElMessage.error('未找到所选教务系统配置');
+            return;
         }
 
         // 保存课表名称
-        importScheduleName.value = value;
+        importScheduleName.value = scheduleName;
 
-        // 使用配置中的教务系统URL，如果没有则使用百度搜索
-        const url = config.value.edu_system_url || 'https://www.baidu.com/s?wd=教务系统';
-        await invoke('open_login_window', { url });
+        // 使用选中的教务系统 URL
+        await invoke('open_login_window', { url: system.url });
         ElMessage.info('请在打开的窗口中登录教务系统，并在课表页面点击右下角的导入按钮');
 
         // 监听窗口关闭事件（轮询方式）
@@ -829,24 +810,44 @@ async function openBrowser() {
                 // 从剪贴板读取并导入
                 try {
                     const text = await navigator.clipboard.readText();
-                    if (text && text.length > 1000) { // HTML 内容通常很长
-                        console.log('从剪贴板读取到 HTML，长度:', text.length);
 
-                        // 使用用户输入的名称导入
-                        loading.value = true;
-                        try {
-                            await parseHtmlSchedule(text);
-                            await saveScheduleCache(courses.value, importScheduleName.value);
-                            ElMessage.success('课表导入成功！');
-                            await loadScheduleList();
-                            htmlSource.value = '';
-                        } catch (err) {
-                            ElMessage.error(`导入失败: ${err}`);
-                        } finally {
-                            loading.value = false;
+                    // 验证剪贴板内容
+                    if (!text || text.trim().length === 0) {
+                        ElMessage.warning('未检测到剪贴板内容，请确保在课表页面点击了导入按钮');
+                        return;
+                    }
+
+                    if (text.length < 500) {
+                        ElMessage.warning('剪贴板内容太短，可能不是完整的课表页面HTML');
+                        return;
+                    }
+
+                    console.log('从剪贴板读取到 HTML，长度:', text.length);
+
+                    // 使用用户输入的名称导入
+                    loading.value = true;
+                    try {
+                        // 解析 HTML
+                        await parseHtmlSchedule(text);
+
+                        // 验证是否解析出课程
+                        if (!courses.value || courses.value.length === 0) {
+                            ElMessage.error('未能从页面中解析出课程信息，请确认已打开正确的课表页面');
+                            return;
                         }
-                    } else {
-                        console.log('剪贴板为空或内容太短，忽略');
+
+                        // 保存课表
+                        await saveScheduleCache(courses.value, importScheduleName.value);
+                        await loadScheduleList();
+
+                        // 成功导入
+                        ElMessage.success(`课表导入成功！已导入 ${courses.value.length} 门课程`);
+                        htmlSource.value = '';
+                    } catch (err) {
+                        console.error('导入失败:', err);
+                        ElMessage.error(`导入失败: ${err}`);
+                    } finally {
+                        loading.value = false;
                     }
                 } catch (clipErr) {
                     console.error('读取剪贴板失败:', clipErr);
@@ -939,8 +940,7 @@ async function handleDeleteSchedule(scheduleId: string) {
 // 新建课表
 async function handleNewSchedule() {
   showScheduleManageDialog.value = false;
-  // 直接打开浏览器，不需要显示导入对话框
-  await openBrowser();
+  showImportDialog.value = true;
 }
 
 // 打开编辑课表
@@ -950,6 +950,16 @@ function handleEditSchedule(schedule: ScheduleMetadata) {
     showScheduleEditDialog.value = true;
     console.log('showScheduleEditDialog set to:', showScheduleEditDialog.value);
     console.log('editingScheduleMeta set to:', editingScheduleMeta.value);
+}
+
+// 确认导入课表
+async function handleConfirmImport(data: { systemId: string; scheduleName: string }) {
+    // 保存用户选择的教务系统 ID
+    config.value.last_edu_system_id = data.systemId;
+    await invoke('save_app_config', { config: config.value });
+
+    // 打开浏览器
+    await openBrowser(data.systemId, data.scheduleName);
 }
 
 // 处理背景上传
@@ -1125,10 +1135,10 @@ onMounted(async () => {
   if (hasCache) {
     await loadConfig();
   } else {
-    // 如果没有缓存,直接打开浏览器（不显示导入对话框）
-    console.log('没有缓存课表，打开浏览器导入');
+    // 如果没有缓存,显示导入对话框
+    console.log('没有缓存课表，显示导入对话框');
     isImportingFromBrowser.value = true;
-    await openBrowser();
+    showImportDialog.value = true;
   }
 
   // 初始化深色模式

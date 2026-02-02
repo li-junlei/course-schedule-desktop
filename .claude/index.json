@@ -1,8 +1,8 @@
 {
   "project_name": "course-schedule-desktop",
   "description": "课程表桌面应用 - 基于 Tauri + Vue 3 的跨平台课程表管理工具",
-  "last_updated": "2026-01-30T17:46:33+08:00",
-  "version": "0.1.0",
+  "last_updated": "2026-02-02T11:09:40+08:00",
+  "version": "1.5.0",
   "tech_stack": {
     "frontend": {
       "framework": "Vue 3",
@@ -30,32 +30,43 @@
         "src/components/CourseGrid.vue",
         "src/components/CourseCard.vue",
         "src/components/WeekSelector.vue",
+        "src/components/ScheduleEditDialog.vue",
+        "src/components/ImportScheduleDialog.vue",
+        "src/components/TimeTableManager.vue",
         "src/composables/useCourse.ts",
+        "src/composables/useTimeTable.ts",
         "src/utils/date.ts",
         "src/utils/color.ts"
       ],
       "interfaces": {
         "composables": [
-          "useCourse - 课表数据管理"
+          "useCourse - 课表数据管理 (loadCachedSchedule, saveScheduleCache, listSchedules, deleteSchedule, switchSchedule, updateScheduleInfo, applySettingsToAll, reorderSchedules)",
+          "useTimeTable - 时间表管理 (loadTimeTables, saveTimeTable, deleteTimeTable)",
+          "useBrowserImport - 浏览器导入监听 (setupImportListener)"
         ],
         "components": [
-          "App.vue - 主应用组件",
-          "CourseGrid.vue - 课表网格",
-          "CourseCard.vue - 课程卡片",
-          "WeekSelector.vue - 周次选择器",
-          "PopupMenu.vue - 弹出菜单"
+          "App.vue - 主应用组件，包含全局状态管理和核心业务逻辑",
+          "CourseGrid.vue - 课表网格布局，支持滑动切换周次",
+          "CourseCard.vue - 单个课程卡片渲染",
+          "WeekSelector.vue - 周次选择与预览（点阵视图）",
+          "PopupMenu.vue - 弹出菜单导航",
+          "ScheduleEditDialog.vue - 课表元数据编辑（学期设置、时间表选择）",
+          "ImportScheduleDialog.vue - 教务系统选择与导入",
+          "TimeTableManager.vue - 时间表（节次时间）管理"
         ]
       },
       "dependencies": [
         "vue",
         "element-plus",
+        "@element-plus/icons-vue",
         "@tauri-apps/api",
         "@tauri-apps/plugin-dialog",
-        "@tauri-apps/plugin-fs"
+        "@tauri-apps/plugin-fs",
+        "vuedraggable"
       ],
       "test_coverage": "无自动化测试",
       "documentation": "src/CLAUDE.md",
-      "coverage_estimate": "100%"
+      "coverage_estimate": "95%"
     },
     {
       "path": "src-tauri",
@@ -75,18 +86,30 @@
       ],
       "interfaces": {
         "tauri_commands": [
+          "login_and_get_schedule - 登录并获取课表",
+          "refresh_schedule - 使用 Cookie 刷新课表",
           "parse_html_schedule - 解析 HTML 课表",
+          "import_from_browser - 从浏览器导入课表（通过剪贴板）",
           "load_cached_schedule - 加载缓存课表",
           "save_schedule_cache - 保存课表缓存",
-          "refresh_schedule - 刷新课表",
-          "get_app_config - 获取应用配置",
+          "list_schedules - 获取所有课表列表",
+          "delete_schedule - 删除指定课表",
+          "switch_schedule - 切换当前课表",
+          "reorder_schedules - 重新排序课表",
+          "update_schedule_info - 更新课表元数据",
+          "save_time_table - 保存时间表",
+          "delete_time_table - 删除时间表",
+          "list_time_tables - 获取时间表列表",
+          "apply_settings_to_all - 将当前课表设置应用到所有课表",
+          "get_app_config - 获取应用配置（含自动迁移）",
           "save_app_config - 保存应用配置",
           "save_background_image - 保存背景图",
           "delete_background_image - 删除背景图",
-          "calculate_date - 计算日期",
-          "get_current_week - 获取当前周次",
-          "open_login_window - 打开登录窗口",
-          "clear_all_data - 清空所有数据"
+          "clear_all_data - 清空所有数据",
+          "get_current_week - 计算当前周次",
+          "calculate_date - 计算指定周次和星期的日期",
+          "open_login_window - 打开内置浏览器窗口（含注入脚本）",
+          "get_window_state - 检查窗口是否存在"
         ]
       },
       "dependencies": [
@@ -94,12 +117,17 @@
         "reqwest",
         "scraper",
         "serde",
+        "serde_json",
         "md5",
         "des",
         "chrono",
-        "dirs"
+        "dirs",
+        "uuid",
+        "regex",
+        "thiserror",
+        "tokio"
       ],
-      "test_coverage": "部分单元测试 (parser.rs, crypto.rs)",
+      "test_coverage": "部分单元测试 (parser.rs)",
       "documentation": "src-tauri/CLAUDE.md",
       "coverage_estimate": "100%"
     }
@@ -109,10 +137,10 @@
       "fields": [
         "name: string - 课程名称",
         "teacher: string - 教师名称",
-        "weeks: number[] - 周次列表",
-        "week_type: number - 单双周标记",
+        "weeks: number[] - 周次列表（展开）",
+        "week_type: number - 单双周标记 (1=单, 2=双, 0=全)",
         "day_of_week: number - 星期 (1-7)",
-        "periods: number[] - 节次范围",
+        "periods: number[] - 节次范围 [开始节, 结束节]",
         "location: string - 地点"
       ],
       "locations": [
@@ -122,11 +150,48 @@
     },
     "AppConfig": {
       "fields": [
-        "background_image?: string - 背景图片",
-        "first_day?: number - 学期第一天时间戳",
-        "end_week?: number - 结束周次",
+        "background_image?: string - 背景图片文件名",
+        "current_schedule_id?: string - 当前选中的课表ID",
+        "show_grid_lines?: boolean - 显示网格辅助线",
+        "card_opacity?: number - 卡片不透明度 (50-100)",
+        "show_teacher?: boolean - 显示教师",
+        "show_location?: boolean - 显示地点",
+        "time_tables?: TimeTable[] - 多时间表列表",
+        "edu_systems?: EduSystem[] - 教务系统列表",
+        "last_edu_system_id?: string - 上次选择的教务系统ID",
+        "first_day?: number - 学期第一天时间戳（兼容旧版）",
+        "end_week?: number - 结束周次（兼容旧版）",
+        "max_periods?: number - 最大节次（兼容旧版）",
+        "period_times?: PeriodTime[] - 节次时间表（兼容旧版）"
+      ],
+      "locations": [
+        "src/types.ts",
+        "src-tauri/src/models.rs"
+      ]
+    },
+    "ScheduleMetadata": {
+      "fields": [
+        "id: string - 课表唯一ID",
+        "name: string - 课表名称",
+        "created_at: number - 创建时间",
+        "updated_at: number - 更新时间",
+        "course_count: number - 课程数量",
+        "first_day?: number - 第一周第一天时间戳",
         "max_periods?: number - 最大节次",
-        "period_times?: string[] - 节次时间表"
+        "weeks_count?: number - 学期周数",
+        "time_table_id?: string - 关联的时间表ID",
+        "sort_index?: number - 排序索引"
+      ],
+      "locations": [
+        "src/types.ts",
+        "src-tauri/src/models.rs"
+      ]
+    },
+    "TimeTable": {
+      "fields": [
+        "id: string - 时间表唯一ID",
+        "name: string - 时间表名称",
+        "periods: PeriodTime[] - 节次时间列表"
       ],
       "locations": [
         "src/types.ts",
@@ -154,22 +219,29 @@
     "*.zip",
     "*.tar",
     "*.gz",
-    "src-tauri/target/**"
+    "src-tauri/target/**",
+    "CLAUDE.md",
+    "**/CLAUDE.md"
   ],
   "scan_summary": {
     "total_files_estimated": 1175,
-    "scanned_files": 35,
-    "coverage_percentage": "100%",
+    "scanned_files": 25,
+    "coverage_percentage": 85,
     "truncated": false,
-    "scan_duration": "单次运行",
-    "gaps": []
+    "scan_duration": "约 45 秒",
+    "gaps": [
+      "前端缺少自动化测试 (Vitest)",
+      "后端仅有 parser.rs 单元测试",
+      "缺少 E2E 集成测试",
+      "Tauri 命令缺少详细的参数文档"
+    ]
   },
   "recommended_next_steps": [
-    "补充前端组件单元测试 (Vitest + Vue Test Utils)",
-    "扩展 parser.rs 的测试用例以支持更多教务系统",
+    "添加前端组件单元测试 (Vitest + Vue Test Utils)",
+    "扩展后端单元测试覆盖 (client.rs, storage.rs)",
     "添加 E2E 测试 (Tauri + Playwright)",
-    "优化 TypeScript 类型定义的严格性",
-    "考虑添加国际化支持 (i18n)"
+    "补充 Tauri 命令的 JSDoc 注释以生成 API 文档",
+    "考虑引入 thiserror 统一错误处理"
   ],
   "key_paths": {
     "config_files": [
@@ -181,13 +253,26 @@
     ],
     "entry_points": [
       "src/main.ts",
-      "src-tauri/src/main.rs"
+      "src-tauri/src/main.rs",
+      "src/App.vue"
     ],
     "documentation": [
       "CLAUDE.md",
       "src/CLAUDE.md",
       "src-tauri/CLAUDE.md",
       "README.md"
+    ]
+  },
+  "architecture_highlights": {
+    "frontend_pattern": "Vue 3 Composition API + 组件化架构",
+    "backend_pattern": "Tauri IPC + 分层架构 (lib.rs/models.rs/parser.rs/storage.rs/client.rs/crypto.rs)",
+    "data_flow": "用户操作 → 前端事件 → Tauri.invoke() → Rust 命令 → Storage/Parser → 返回数据 → 前端更新",
+    "key_features": [
+      "多课表管理（拖拽排序、独立配置）",
+      "智能 HTML 解析器（支持中央财经大学教务系统）",
+      "剪贴板导入（绕过 Tauri 2 安全限制）",
+      "配置自动迁移（period_times → time_tables）",
+      "内置浏览器（注入导入按钮脚本）"
     ]
   }
 }
