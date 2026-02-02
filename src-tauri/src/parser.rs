@@ -3,13 +3,113 @@ use regex::Regex;
 use std::collections::HashMap;
 use crate::models::Course;
 
+/// 课程类型映射（Python: TYPE_MAP）
+/// ★: 讲课, ○: 实验, ◆: 讨论, ◇: 上机, ●: 实践
+fn map_course_type(symbol: &str) -> &'static str {
+    match symbol {
+        "★" => "讲课",
+        "○" => "实验",
+        "◆" => "讨论",
+        "◇" => "上机",
+        "●" => "实践",
+        _ => "未知",
+    }
+}
+
+/// 循环去除校区前缀（Python: while循环去除校区前缀）
+/// 支持多次去除（因为校区前缀可能重复出现）
+fn remove_campus_prefix(text: &str) -> String {
+    let campus_re = Regex::new(r"^(学院南路校区|沙河校区)\s*").unwrap();
+    let mut result = text.to_string();
+
+    // 循环去除，直到无法再去除为止
+    loop {
+        let new_result = campus_re.replace(&result, "").to_string();
+        if new_result == result {
+            break;
+        }
+        result = new_result;
+    }
+
+    result.trim().to_string()
+}
+
+/// 星期映射表（Python: DAY_MAP）
+fn map_day_name(chinese_name: &str) -> Option<&'static str> {
+    match chinese_name {
+        "星期一" => Some("周一"),
+        "星期二" => Some("周二"),
+        "星期三" => Some("周三"),
+        "星期四" => Some("周四"),
+        "星期五" => Some("周五"),
+        "星期六" => Some("周六"),
+        "星期日" => Some("周日"),
+        _ => None,
+    }
+}
+
+/// 尝试从cell ID推断星期（Python: _try_infer_day_from_cell_id）
+/// term1/term3的TD ID格式：X-Y，其中X是星期编号（1=周一，2=周二，...）
+fn try_infer_day_from_cell_id(cell_id: &str) -> Option<usize> {
+    if !cell_id.contains('-') {
+        return None;
+    }
+
+    let parts: Vec<&str> = cell_id.split('-').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let first_num = parts[0];
+    match first_num.parse::<usize>() {
+        Ok(day_num) if (1..=7).contains(&day_num) => Some(day_num),
+        _ => None,
+    }
+}
+
+/// 根据节次号和rowspan计算节次范围（Python: _calculate_period_range）
+///
+/// # Arguments
+/// * `period` - 节次号 (如 "1", "2", "3"...)
+/// * `rowspan` - 单元格占的行数（默认2表示占两节课）
+///
+/// # Returns
+/// 节次范围字符串（如 "1-2节", "第3节", "9-11节"）
+fn calculate_period_range(period: &str, rowspan: usize) -> String {
+    // 节次映射表（Python: PERIOD_MAP）
+    // 将节次号映射到起始节次
+    let period_map: std::collections::HashMap<&str, i32> = [
+        ("1", 1), ("2", 1),
+        ("3", 3), ("4", 3),
+        ("5", 5), ("6", 5),
+        ("7", 7), ("8", 7),
+        ("9", 9), ("10", 9),
+        ("11", 11), ("12", 11),
+    ].iter().cloned().collect();
+
+    // 计算起始节次
+    let start_period = period_map.get(period)
+        .copied()
+        .unwrap_or_else(|| period.parse().unwrap_or(1));
+
+    // 根据rowspan计算结束节次
+    let end_period = start_period + rowspan as i32 - 1;
+
+    if start_period == end_period {
+        format!("第{}节", start_period)
+    } else {
+        format!("{}-{}节", start_period, end_period)
+    }
+}
+
 /// 解析HTML课程表（中央财经大学）
+/// 严格按照 C:\project\course_extractor\CUFE\course_extractor.py 的逻辑实现
 pub fn parse_course_html(html_content: &str) -> Result<Vec<Course>, String> {
+    use std::collections::HashMap;
+
     let document = Html::parse_document(html_content);
 
-    // 查找包含 timetable 类的表格 (Python: re.compile(r'timetable'))
-    // scraper 不支持正则选择器，但通常类名就是 timetable 或包含它。
-    // 这里我们尝试找所有table，然后检查class
+    // Python: soup.find('table', class_=re.compile(r'timetable'))
     let mut course_table = None;
     let table_sel = Selector::parse("table").unwrap();
 
@@ -28,150 +128,304 @@ pub fn parse_course_html(html_content: &str) -> Result<Vec<Course>, String> {
     let td_selector = Selector::parse("td").unwrap();
     let div_con_selector = Selector::parse("div.timetable_con").unwrap();
 
+    // Python: rows = table.find_all('tr')
     let rows: Vec<ElementRef> = table.select(&tr_selector).collect();
-    if rows.len() < 3 {
-        return Err("表格行数不足".to_string());
+
+    // Python: header_row = table.find('tr')
+    let header_row = table.select(&tr_selector).next()
+        .ok_or("表格没有行")?;
+
+    // Python: 获取表头，建立列索引到星期的映射
+    let mut _day_columns: HashMap<usize, &str> = HashMap::new();
+    for (idx, td) in header_row.select(&td_selector).enumerate() {
+        let text = td.text().collect::<Vec<_>>().join("").trim().to_string();
+        if let Some(mapped) = map_day_name(&text) {
+            _day_columns.insert(idx, mapped);
+        }
     }
 
     let mut courses = Vec::new();
-    let mut col_rowspan: HashMap<usize, usize> = HashMap::new();
+    let mut current_period: Option<String> = None;
+    let mut _time_slot: Option<String> = None;
+    let mut col_rowspan: HashMap<usize, usize> = HashMap::new(); // Python: 追踪每列的rowspan剩余行数
 
-    // 预定义的星期列表
-    let day_list = vec!["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    let day_list = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-
-
-    let mut current_period_str = String::new();
-
-    // 从第3行开始 (rows[2])
-    for row in rows.into_iter().skip(2) {
+    // Python: 从第3行开始（跳过标题行和表头行）
+    // Python: for row_idx, row in enumerate(rows[2:], start=2):
+    for row in rows.iter().skip(2) {
         let cells: Vec<ElementRef> = row.select(&td_selector).collect();
         if cells.is_empty() {
             continue;
         }
 
+        // Python: first_cell_text = cells[0].get_text(strip=True)
         let first_cell_text = cells[0].text().collect::<Vec<_>>().join("").trim().to_string();
-        
-        // 逻辑分支：检查第一列是否是时间段（上午/下午/晚上）或直接是节次
-        let is_time_slot = ["上午", "下午", "晚上", "中午"].contains(&first_cell_text.as_str());
-        
-        let start_cell_idx;
-        let mut day_idx = 0;
 
-        if is_time_slot {
-             // 这种情况下节次在第2列（索引1）
-             if cells.len() >= 2 {
+        // Python: 情况1：第一列是时间段（上午/下午/晚上/中午）
+        if ["上午", "下午", "晚上", "中午"].contains(&first_cell_text.as_str()) {
+            _time_slot = Some(first_cell_text.clone());
+
+            // Python: if len(cells) >= 2:
+            if cells.len() >= 2 {
                 let period_text = cells[1].text().collect::<Vec<_>>().join("").trim().to_string();
+                // Python: if period_text.isdigit():
                 if period_text.chars().all(char::is_numeric) {
-                    current_period_str = period_text;
-                }
-             }
-             start_cell_idx = 2; // 从第3列开始是星期
-        } else if first_cell_text.chars().all(char::is_numeric) {
-            // 第1列就是节次号
-            current_period_str = first_cell_text;
-            start_cell_idx = 1; // 从第2列开始是星期
-        } else {
-            // 其他情况，可能这行不包含节次信息，跳过或处理
-            continue; 
-        }
-
-        // 遍历每一天的单元格
-        // Python: for cell_idx, cell in enumerate(cells[start_cell_idx:], start=start_cell_idx):
-        for cell in cells.into_iter().skip(start_cell_idx) {
-            // 跳过被 rowspan 占据的列
-            while let Some(&count) = col_rowspan.get(&day_idx) {
-                if count > 0 {
-                    col_rowspan.insert(day_idx, count - 1);
-                    if count - 1 == 0 {
-                        col_rowspan.remove(&day_idx);
-                    }
-                    day_idx += 1;
-                } else {
-                    col_rowspan.remove(&day_idx);
+                    current_period = Some(period_text);
                 }
             }
 
-            if day_idx < day_list.len() {
-                let day_str = day_list[day_idx];
-                
-                let mut rs = 1;
-                // 检查并记录当前单元格的 rowspan
-                if let Some(rowspan_attr) = cell.value().attr("rowspan") {
-                    if let Ok(val) = rowspan_attr.parse::<usize>() {
-                        rs = val;
-                        if rs > 1 {
-                             col_rowspan.insert(day_idx, rs - 1);
+            // Python: 从第3列开始遍历（跳过时间段和节次列）
+            // Python: day_idx = 0
+            let mut day_idx = 0;
+
+            // Python: for cell in cells[2:]:
+            for cell in cells.iter().skip(2) {
+                // Python: 跳过被rowspan占据的列
+                // Python: while day_idx in col_rowspan and col_rowspan[day_idx] > 0:
+                while col_rowspan.contains_key(&day_idx) {
+                    let count = col_rowspan.get(&day_idx).copied().unwrap_or(0);
+                    if count > 0 {
+                        let new_count = count - 1;
+                        if new_count > 0 {
+                            col_rowspan.insert(day_idx, new_count);
+                        } else {
+                            col_rowspan.remove(&day_idx);
+                        }
+                        day_idx += 1;
+                    } else {
+                        // count == 0，移除并继续到下一个索引
+                        col_rowspan.remove(&day_idx);
+                        day_idx += 1;
+                    }
+                }
+
+                // Python: if day_idx < len(day_list):
+                if day_idx < day_list.len() {
+                    let day = day_list[day_idx];
+
+                    // Python: 检查并记录rowspan
+                    // Python: cell_rowspan = cell.get('rowspan')
+                    let cell_rowspan = cell.value().attr("rowspan")
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or(1);
+
+                    // Python: if cell_rowspan > 1:
+                    // Python:     col_rowspan[day_idx] = cell_rowspan - 1
+                    if cell_rowspan > 1 {
+                        col_rowspan.insert(day_idx, cell_rowspan - 1);
+                    }
+
+                    // Python: 处理同一单元格中的多个课程块
+                    // Python: course_divs = cell.find_all('div', class_='timetable_con')
+                    for course_div in cell.select(&div_con_selector) {
+                        // Python: course = self._parse_course_cell(course_div, day, current_period, cell_rowspan)
+                        if let Some(period_str) = &current_period {
+                            if let Some(course) = parse_course_cell(&course_div, day, period_str, cell_rowspan) {
+                                courses.push(course);
+                            }
                         }
                     }
                 }
 
-                // 解析课程内容
-                if let Some(course_div) = cell.select(&div_con_selector).next() {
-                    if let Some(course) = parse_course_cell(&course_div, day_str, &current_period_str, rs) {
-                        courses.push(course);
-                    }
-                }
-                
+                // Python: day_idx += 1
                 day_idx += 1;
             }
         }
-        
+        // Python: 情况2：第一列是节次号（rowspan导致的跨行）
+        // Python: elif first_cell_text.isdigit():
+        else if first_cell_text.chars().all(char::is_numeric) {
+            current_period = Some(first_cell_text.clone());
+
+            // Python: 尝试从cell ID推断星期（适用于term1/term3格式）
+            // Python: day_idx = 0
+            let mut day_idx = 0;
+
+            // Python: for cell in cells[1:]:  # 从列1开始
+            for cell in cells.iter().skip(1) {
+                // Python: cell_id = cell.get('id', '')
+                let cell_id = cell.value().attr("id").unwrap_or("");
+
+                // Python: 首先检查并跳过被col_rowspan占据的列
+                // Python: while day_idx in col_rowspan and col_rowspan[day_idx] > 0:
+                while col_rowspan.contains_key(&day_idx) {
+                    let count = col_rowspan.get(&day_idx).copied().unwrap_or(0);
+                    if count > 0 {
+                        let new_count = count - 1;
+                        if new_count > 0 {
+                            col_rowspan.insert(day_idx, new_count);
+                        } else {
+                            col_rowspan.remove(&day_idx);
+                        }
+                        day_idx += 1;
+                    } else {
+                        // count == 0，移除并继续到下一个索引
+                        col_rowspan.remove(&day_idx);
+                        day_idx += 1;
+                    }
+                }
+
+                // Python: 获取rowspan（所有单元格都需要）
+                let cell_rowspan = cell.value().attr("rowspan")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(1);
+
+                // Python: 尝试从cell ID推断星期
+                // Python: inferred_day = self._try_infer_day_from_cell_id(cell_id, day_list)
+                let day = if let Some(day_num) = try_infer_day_from_cell_id(cell_id) {
+                    // day_num 是1-7，转换为索引0-6
+                    day_list.get(day_num - 1).copied().unwrap_or("周一")
+                } else {
+                    // Python: fallback: 使用day_idx
+                    // Python: if day_idx < len(day_list):
+                    if day_idx < day_list.len() {
+                        day_list[day_idx]
+                    } else {
+                        day_idx += 1;
+                        continue;
+                    }
+                };
+
+                // Python: 记录rowspan到col_rowspan（用于后续行跳过）
+                // Python: if cell_rowspan > 1:
+                // Python:     col_rowspan[day_idx] = cell_rowspan - 1
+                if cell_rowspan > 1 {
+                    col_rowspan.insert(day_idx, cell_rowspan - 1);
+                }
+
+                // Python: 处理同一单元格中的多个课程块
+                for course_div in cell.select(&div_con_selector) {
+                    if let Some(period_str) = &current_period {
+                        if let Some(course) = parse_course_cell(&course_div, day, period_str, cell_rowspan) {
+                            courses.push(course);
+                        }
+                    }
+                }
+
+                // Python: day_idx += 1
+                day_idx += 1;
+            }
+        }
+        // Python: 其他情况：跳过该行
     }
 
     Ok(courses)
 }
 
+/// 解析单个课程单元格（Python: _parse_course_cell）
+/// 严格按照 C:\project\course_extractor\CUFE\course_extractor.py 的逻辑实现
 fn parse_course_cell(
-    div: &ElementRef, 
-    day_str: &str, 
-    period_str: &str,
-    rowspan: usize
+    div: &ElementRef,
+    day: &str,
+    period: &str,
+    rowspan: usize,
 ) -> Option<Course> {
     let span_title_selector = Selector::parse("span.title, u.title").unwrap();
     let p_selector = Selector::parse("p").unwrap();
-    
-    // 提取课程名称
+
+    // Python: title_elem = div.find(['span', 'u'], class_='title')
+    // Python: if not title_elem: return None
     let title_elem = div.select(&span_title_selector).next()?;
+
+    // Python: title_text = title_elem.get_text(strip=True)
     let mut title_text = title_elem.text().collect::<Vec<_>>().join("").trim().to_string();
+
+    // Python: title_text = title_text.replace('【调】', '').strip()
     title_text = title_text.replace("【调】", "").trim().to_string();
 
-    // 课程类型映射
-    let type_map = HashMap::from([
-        ("★", "讲课"),
-        ("○", "实验"),
-        ("◆", "讨论"),
-        ("◇", "上机"),
-        ("●", "实践"),
-    ]);
+    // Python: 尝试从标题中提取节次信息（优先级高于rowspan计算）
+    // Python: title_period_match = re.search(r'\((\d+)-(\d+)节\)', title_text)
+    let title_period_re = Regex::new(r"\((\d+)-(\d+)节\)").unwrap();
+    let mut period_range = String::new();
 
-    // 清理标题中的符号
-    for symbol in type_map.keys() {
-        if title_text.ends_with(symbol) {
-             title_text = title_text.replace(symbol, "").trim().to_string();
+    if let Some(cap) = title_period_re.captures(&title_text) {
+        // Python: start = title_period_match.group(1)
+        // Python: end = title_period_match.group(2)
+        if let (Some(start), Some(end)) = (cap.get(1), cap.get(2)) {
+            let start_str = start.as_str();
+            let end_str = end.as_str();
+            // Python: 如果节次范围是X-X，显示为"第X节"
+            if start_str == end_str {
+                period_range = format!("第{}节", start_str);
+            } else {
+                period_range = format!("{}-{}节", start_str, end_str);
+            }
+            // Python: 从标题中移除节次信息
+            // Python: title_text = re.sub(r'\s*\(\d+-\d+节\)', '', title_text)
+            let title_period_remove_re = Regex::new(r"\s*\(\d+-\d+节\)").unwrap();
+            title_text = title_period_remove_re.replace(&title_text, "").trim().to_string();
+        }
+    } else {
+        // Python: 如果标题中没有节次信息，使用rowspan计算
+        // Python: period_range = self._calculate_period_range(period, rowspan)
+        period_range = calculate_period_range(period, rowspan);
+    }
+
+    // Python: course_type_symbol = None
+    // Python: for symbol in self.TYPE_MAP.keys():
+    let type_symbols = ['★', '○', '◆', '◇', '●'];
+    let mut course_type_symbol = None;
+
+    for symbol in &type_symbols {
+        // Python: if symbol in title_text:
+        if title_text.contains(*symbol) {
+            course_type_symbol = Some(*symbol);
+            break;
         }
     }
-    let course_name = title_text;
 
-    // 提取详细信息
+    // Python: course_name = title_text.rstrip(''.join(self.TYPE_MAP.keys())).strip()
+    let symbols_str: String = type_symbols.iter().collect();
+    let course_name = title_text.trim_end_matches(|c| symbols_str.contains(c)).trim().to_string();
+
+    // Python: 提取详细信息
+    // Python: all_p = div.find_all('p')
+    // Python: weeks = classroom = teacher = class_name = credits = total_hours = exam_type = None
     let mut weeks_vec: Vec<i32> = Vec::new();
-    let mut classroom = String::from("未指定");
-    let mut teacher = String::from("未指定");
-    
-    // 解析p标签
+    let mut classroom: Option<String> = None;
+    let mut teacher: Option<String> = None;
+    let mut period_from_p: Option<String> = None;
+
+    // Python: 第一个循环：提取节次、周次、教室、教师
+    // Python: for p in all_p:
     for p in div.select(&p_selector) {
+        // Python: text = p.get_text(strip=True)
         let text = p.text().collect::<Vec<_>>().join("").trim().to_string();
+
+        // Python: span = p.find('span')
+        // Python: title_attr = span.get('title', '') if span else p.get('title', '')
         let span_sel = Selector::parse("span").unwrap();
         let title_attr = if let Some(span) = p.select(&span_sel).next() {
             span.value().attr("title").unwrap_or("").to_string()
         } else {
-             p.value().attr("title").unwrap_or("").to_string()
+            p.value().attr("title").unwrap_or("").to_string()
         };
 
+        // Python: if '节' in text and '周' in text:
         if text.contains("节") && text.contains("周") {
-            // 提取周次: "(1-2节)1-7周,11-16周"
-            let re = Regex::new(r"(\d+(?:-\d+)?)\s*周").unwrap();
-            for cap in re.captures_iter(&text) {
+            // Python: 从p标签中提取节次信息
+            // Python: period_match = re.search(r'\((\d+)-(\d+)节\)', text)
+            let period_re = Regex::new(r"\((\d+)-(\d+)节\)").unwrap();
+            // Python: if period_match and not period_from_p:
+            if period_from_p.is_none() {
+                if let Some(cap) = period_re.captures(&text) {
+                    if let (Some(start), Some(end)) = (cap.get(1), cap.get(2)) {
+                        let start_str = start.as_str();
+                        let end_str = end.as_str();
+                        if start_str == end_str {
+                            period_from_p = Some(format!("第{}节", start_str));
+                        } else {
+                            period_from_p = Some(format!("{}-{}节", start_str, end_str));
+                        }
+                    }
+                }
+            }
+
+            // Python: 提取周次信息
+            // Python: week_matches = re.findall(r'(\d+(?:-\d+)?\s*)周', text)
+            // Python: if week_matches: weeks = '、'.join(week_matches) + '周'
+            let week_re = Regex::new(r"(\d+(?:-\d+)?)\s*周").unwrap();
+            for cap in week_re.captures_iter(&text) {
                 if let Some(m) = cap.get(1) {
                     let range_str = m.as_str();
                     if range_str.contains('-') {
@@ -190,19 +444,35 @@ fn parse_course_cell(
                     }
                 }
             }
-        } else if title_attr.contains("上课地点") || text.contains("主教") || text.contains("校区") || text.contains("楼") {
-            classroom = text.replace("学院南路校区", "").replace("沙河校区", "").trim().to_string();
-        } else if title_attr.contains("教师") {
-            teacher = text.trim().to_string();
+        }
+        // Python: elif '上课地点' in title_attr or '主教' in text or '校区' in text or '楼' in text:
+        else if title_attr.contains("上课地点") || text.contains("主教") || text.contains("校区") || text.contains("楼") {
+            // Python: classroom = text
+            // Python: 循环去除所有校区前缀
+            classroom = Some(remove_campus_prefix(&text));
+        }
+        // Python: elif '教师' in title_attr:
+        else if title_attr.contains("教师") {
+            // Python: teacher = text.strip()
+            teacher = Some(text.trim().to_string());
         }
     }
-    
+
+    // Python: 如果从p标签中提取到了节次信息，使用它（优先级高于rowspan计算）
+    // Python: if period_from_p: period_range = period_from_p
+    if let Some(p_period) = period_from_p {
+        period_range = p_period;
+    }
+
+    // 将节次范围字符串转换为 Vec<i32>
+    let periods = parse_period_range_string(&period_range);
+
     // 处理周次向量并排序去重
     weeks_vec.sort();
     weeks_vec.dedup();
 
     // 解析星期 str -> i32
-    let day_of_week = match day_str {
+    let day_of_week = match day {
         "周一" => 1,
         "周二" => 2,
         "周三" => 3,
@@ -213,33 +483,52 @@ fn parse_course_cell(
         _ => 1,
     };
 
-    // 解析节次 (基于 rowspan)
-    // 逻辑：Start Period + Rowspan
-    let start_period = if let Ok(p) = period_str.parse::<i32>() {
-        p
-    } else if let Some(first_part) = period_str.split('-').next() {
-        first_part.parse::<i32>().unwrap_or(0)
-    } else {
-        0
-    };
-
-    let periods: Vec<i32> = if start_period > 0 {
-        (start_period .. start_period + rowspan as i32).collect()
-    } else {
-        vec![]
-    };
-
     let week_type = 0;
 
     Some(Course {
         name: course_name,
-        teacher,
+        teacher: teacher.unwrap_or_else(|| "未指定".to_string()),
         weeks: weeks_vec,
         week_type,
         day_of_week,
         periods,
-        location: classroom,
+        location: classroom.unwrap_or_else(|| "未指定".to_string()),
     })
+}
+
+/// 将节次范围字符串解析为Vec<i32>
+/// 支持格式："1-2节", "第3节", "9-11节" 等
+fn parse_period_range_string(period_str: &str) -> Vec<i32> {
+    // 移除"节"字和"第"字
+    let clean_str = period_str.replace("节", "").replace("第", "").trim().to_string();
+
+    if clean_str.contains('-') {
+        // 格式如 "1-2"
+        let parts: Vec<&str> = clean_str.split('-').collect();
+        if parts.len() == 2 {
+            if let (Ok(start), Ok(end)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                if start <= end {
+                    return (start..=end).collect();
+                }
+            }
+        }
+    }
+
+    // 单个节次
+    if let Ok(p) = clean_str.parse::<i32>() {
+        return vec![p];
+    }
+
+    // Fallback: 尝试旧的映射逻辑（兼容性）
+    match period_str {
+        "1" | "2" => vec![1, 2],
+        "3" | "4" => vec![3, 4],
+        "5" | "6" => vec![5, 6],
+        "7" | "8" => vec![7, 8],
+        "9" | "10" => vec![9, 10],
+        "11" | "12" => vec![11, 12],
+        _ => vec![],
+    }
 }
 
 /// 解析浙江大学课程表 HTML

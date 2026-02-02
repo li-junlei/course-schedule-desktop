@@ -24,7 +24,7 @@
             </div>
             <div class="setting-desc">点击选择或编辑时间表</div>
         </div>
-        
+
         <!-- Preview of current time table -->
         <div class="time-preview" v-if="currentTimeTable">
             <div class="preview-title">时间表预览</div>
@@ -38,7 +38,22 @@
         </div>
       </div>
 
-      <!-- 2. 第一周第一天 -->
+      <!-- 2. 课表名称 -->
+      <div class="setting-section">
+        <div class="section-title">课表信息</div>
+        <div class="setting-item">
+          <div class="setting-label">课表名称</div>
+          <el-input
+            v-model="form.scheduleName"
+            placeholder="输入课表名称"
+            class="modern-input"
+            style="width: 100%"
+            clearable
+          />
+        </div>
+      </div>
+
+      <!-- 3. 第一周第一天 -->
       <div class="setting-section">
         <div class="section-title">学期设置</div>
         <div class="setting-item">
@@ -144,13 +159,14 @@ const emit = defineEmits<{
   (e: 'saved'): void;
 }>();
 
-const { updateScheduleInfo, applySettingsToAll } = useCourse();
+const { updateScheduleInfo, applySettingsToAll, renameSchedule } = useCourse();
 const { timeTables, listTimeTables } = useTimeTable();
 
 const loading = ref(false);
 const showTimeTableManager = ref(false);
 
 const form = ref({
+    scheduleName: '',
     firstDayDate: '',
     maxPeriods: 13,
     weeksCount: 20,
@@ -180,6 +196,9 @@ watch(() => props.modelValue, async (val) => {
         console.log('Initializing dialog with data:', props.initialData);
         // Initialize form from props
         const meta = props.initialData;
+
+        // Schedule name
+        form.value.scheduleName = meta.name || '';
 
         // Date - 使用本地时间格式化，而不是 UTC
         form.value.firstDayDate = meta.first_day
@@ -218,9 +237,15 @@ async function handleTimeTableSaved() {
 
 async function handleSave() {
     if (!props.scheduleId) return;
-    
+
     loading.value = true;
     try {
+        // Rename schedule if name changed
+        if (form.value.scheduleName &&
+            form.value.scheduleName !== props.initialData?.name) {
+            await renameSchedule(props.scheduleId, form.value.scheduleName);
+        }
+
         // Convert date to timestamp
         let firstDayTimestamp: number | undefined = undefined;
         if (form.value.firstDayDate) {

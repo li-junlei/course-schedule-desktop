@@ -243,6 +243,29 @@ fn update_schedule_info(
     Ok(())
 }
 
+/// 重命名课表
+#[tauri::command]
+fn rename_schedule(schedule_id: String, new_name: String) -> Result<(), String> {
+    println!("重命名课表 - schedule_id: {}, new_name: {}", schedule_id, new_name);
+
+    let storage = StorageManager::new()?;
+
+    // 加载课表
+    let mut cached = storage.load_schedule(&schedule_id)?;
+
+    // 更新名称
+    cached.name = new_name.clone();
+
+    // 保存
+    storage.save_schedule(&cached)?;
+
+    // 如果这是当前选中的课表，需要更新元数据列表中的名称
+    // 由于元数据列表是动态生成的，这里只需要保存更新后的课表即可
+    // 前端会重新加载列表
+
+    Ok(())
+}
+
 /// 获取当前周次
 #[tauri::command]
 fn get_current_week(first_day: Option<i64>) -> i32 {
@@ -589,6 +612,7 @@ pub fn run() {
             delete_schedule,
             switch_schedule,
             reorder_schedules,
+            rename_schedule,
             update_schedule_info,
             save_time_table,
             delete_time_table,

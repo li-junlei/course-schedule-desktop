@@ -141,6 +141,18 @@ export function useCourse() {
   }
 
   /**
+   * 重命名课表
+   */
+  async function renameSchedule(scheduleId: string, newName: string): Promise<void> {
+    try {
+      await invoke('rename_schedule', { scheduleId, newName });
+    } catch (e) {
+      console.error('重命名课表失败:', e);
+      throw e;
+    }
+  }
+
+  /**
    * 重新排序课表
    */
   async function reorderSchedules(sortedIds: string[]): Promise<void> {
@@ -237,6 +249,7 @@ export function useCourse() {
     switchSchedule,
     updateScheduleInfo,
     applySettingsToAll,
+    renameSchedule,
     reorderSchedules,
     maxWeek,
   };

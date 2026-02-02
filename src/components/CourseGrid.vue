@@ -52,6 +52,7 @@
         :key="index"
         :course="course"
         :week="week"
+        :max-periods="maxPeriods"
         :color="colors[index % colors.length]"
         :card-opacity="cardOpacity"
         :show-teacher="showTeacher"
