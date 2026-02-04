@@ -18,34 +18,34 @@
     </div>
 
     <div class="dialog-content">
-      <!-- 教务系统选择 -->
+      <!-- 学年选择 -->
       <div class="setting-item">
-        <div class="setting-label">选择教务系统</div>
-        <el-select
-          v-model="selectedSystemId"
-          placeholder="请选择教务系统"
-          class="modern-input"
-          style="width: 100%"
-          :disabled="eduSystems.length === 0"
-        >
+        <div class="setting-label">学年</div>
+        <el-select v-model="selectedYear" placeholder="选择学年" class="modern-input" style="width: 100%">
           <el-option
-            v-for="system in enabledSystems"
-            :key="system.id"
-            :label="system.name"
-            :value="system.id"
-          >
-            <div class="system-option">
-              <span class="system-name">{{ system.name }}</span>
-              <span v-if="system.id === lastSelectedId" class="system-badge">上次使用</span>
-            </div>
-          </el-option>
+            v-for="year in availableYears"
+            :key="year.value"
+            :label="year.label"
+            :value="year.value"
+          />
         </el-select>
-        <div v-if="eduSystems.length === 0" class="setting-desc warning">
-          暂无可用的教务系统配置
-        </div>
-        <div v-else class="setting-desc">
-          将跳转到所选教务系统的登录页面
-        </div>
+      </div>
+
+      <!-- 学期选择 -->
+      <div class="setting-item">
+        <div class="setting-label">学期</div>
+        <el-radio-group v-model="selectedTerm" class="term-group" style="width: 100%; display: flex; gap: 10px;">
+          <el-radio :value="1" border class="term-radio" style="flex: 1; margin-right: 0;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              第一学期
+            </div>
+          </el-radio>
+          <el-radio :value="2" border class="term-radio" style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              第二学期
+            </div>
+          </el-radio>
+        </el-radio-group>
       </div>
 
       <!-- 课表名称输入 -->
@@ -56,7 +56,7 @@
           placeholder="请输入课表名称"
           class="modern-input"
           clearable
-          @keyup.enter="handleConfirm"
+          @keyup.enter="handleImport"
         >
           <template #prefix>
             <el-icon><Collection /></el-icon>
@@ -70,11 +70,12 @@
       <el-button @click="handleClose" class="modern-button">取消</el-button>
       <el-button
         type="primary"
-        @click="handleConfirm"
+        @click="handleImport"
         class="modern-button primary"
-        :disabled="!selectedSystemId || !scheduleName.trim()"
+        :loading="loading"
+        :disabled="!scheduleName.trim()"
       >
-        确定
+        {{ loading ? '导入中...' : '导入' }}
       </el-button>
     </div>
   </el-dialog>
@@ -82,18 +83,17 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import { ElMessage } from 'element-plus';
 import { Close, Collection } from '@element-plus/icons-vue';
-import type { EduSystem } from '../types';
 
 interface Props {
   modelValue: boolean;
-  eduSystems: EduSystem[];
-  lastSelectedId?: string;
 }
 
 interface Emits {
   (e: 'update:modelValue', value: boolean): void;
-  (e: 'confirm', data: { systemId: string; scheduleName: string }): void;
+  (e: 'import-success', scheduleId: string): void;
 }
 
 const props = defineProps<Props>();
@@ -104,43 +104,82 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value)
 });
 
-const selectedSystemId = ref('');
+const selectedYear = ref(2024);
+const selectedTerm = ref(1);
 const scheduleName = ref('');
+const loading = ref(false);
 
-// 过滤出启用的教务系统
-const enabledSystems = computed(() => {
-  return props.eduSystems.filter(s => s.enabled);
+// 生成可选学年列表（最近5年）
+const availableYears = computed(() => {
+  const currentYear = new Date().getFullYear();
+  const years = [];
+  for (let i = 0; i < 5; i++) {
+    const year = currentYear - i;
+    years.push({
+      value: year,
+      label: `${year}-${year + 1}`
+    });
+  }
+  return years;
 });
 
 // 监听 dialog 打开，初始化默认值
 watch(() => props.modelValue, (newVal) => {
   if (newVal) {
-    // Dialog 打开时，设置默认值
-    selectedSystemId.value = props.lastSelectedId || (enabledSystems.value[0]?.id || '');
+    // 确定当前学年和学期
     const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    scheduleName.value = `从浏览器导入 ${dateStr}`;
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    
+    if (month >= 9) {
+      selectedYear.value = year;
+      selectedTerm.value = 1;
+    } else if (month === 1) {
+      selectedYear.value = year - 1;
+      selectedTerm.value = 1;
+    } else {
+      selectedYear.value = year - 1;
+      selectedTerm.value = 2;
+    }
+    
+    // 自动生成课表名称
+    scheduleName.value = `${selectedYear.value}-${selectedYear.value + 1}-${selectedTerm.value}`;
+    loading.value = false;
   }
+});
+
+// 监听学年学期变化，更新课表名称
+watch([selectedYear, selectedTerm], () => {
+  scheduleName.value = `${selectedYear.value}-${selectedYear.value + 1}-${selectedTerm.value}`;
 });
 
 const handleClose = () => {
   dialogVisible.value = false;
 };
 
-const handleConfirm = () => {
-  if (!selectedSystemId.value) {
-    return;
-  }
+const handleImport = async () => {
   if (!scheduleName.value.trim()) {
+    ElMessage.warning('请输入课表名称');
     return;
   }
 
-  emit('confirm', {
-    systemId: selectedSystemId.value,
-    scheduleName: scheduleName.value.trim()
-  });
+  loading.value = true;
+  try {
+    const scheduleId = await invoke<string>('import_schedule_from_saved_login', {
+      year: selectedYear.value,
+      term: selectedTerm.value,
+      scheduleName: scheduleName.value.trim(),
+    });
 
-  dialogVisible.value = false;
+    ElMessage.success('课表导入成功');
+    emit('import-success', scheduleId);
+    dialogVisible.value = false;
+  } catch (e) {
+    console.error('导入课表失败:', e);
+    ElMessage.error(`${e}`);
+  } finally {
+    loading.value = false;
+  }
 };
 </script>
 
@@ -172,32 +211,8 @@ const handleConfirm = () => {
   line-height: 1.4;
 }
 
-.setting-desc.warning {
-  color: #f56c6c;
-}
-
-.system-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-
-.system-name {
-  flex: 1;
-}
-
-.system-badge {
-  font-size: 11px;
-  padding: 2px 6px;
-  background-color: rgba(103, 194, 58, 0.1);
-  color: #67c23a;
-  border-radius: 4px;
-  margin-left: 8px;
-}
-
-.modern-input .el-input__wrapper,
-.modern-input .el-select__wrapper {
+.modern-input :deep(.el-input__wrapper),
+.modern-input :deep(.el-select__wrapper) {
   background-color: var(--input-bg) !important;
   box-shadow: none !important;
   border: 1px solid var(--border-color);
@@ -206,10 +221,10 @@ const handleConfirm = () => {
   transition: all 0.2s;
 }
 
-.modern-input .el-input__wrapper:hover,
-.modern-input .el-input__wrapper.is-focus,
-.modern-input .el-select__wrapper:hover,
-.modern-input .el-select__wrapper.is-focus {
+.modern-input :deep(.el-input__wrapper:hover),
+.modern-input :deep(.el-input__wrapper.is-focus),
+.modern-input :deep(.el-select__wrapper:hover),
+.modern-input :deep(.el-select__wrapper.is-focus) {
   background-color: var(--input-bg) !important;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1) !important;
@@ -230,18 +245,23 @@ const handleConfirm = () => {
   color: white;
 }
 
-.modern-button.primary:hover {
+.modern-button.primary:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
 }
 
-.modern-button.primary:active {
+.modern-button.primary:active:not(:disabled) {
   transform: scale(0.98);
 }
 
+.term-radio {
+  border-radius: 8px;
+  margin-right: 0 !important;
+}
+
 /* 深色模式适配 */
-html.dark .modern-input .el-input__wrapper.is-focus,
-html.dark .modern-input .el-select__wrapper.is-focus {
+html.dark .modern-input :deep(.el-input__wrapper.is-focus),
+html.dark .modern-input :deep(.el-select__wrapper.is-focus) {
   background-color: var(--input-bg) !important;
 }
 </style>

@@ -17,7 +17,8 @@ export function useCourse() {
   async function loginAndGetSchedule(
     username: string,
     password: string,
-    baseUrl: string
+    baseUrl: string,
+    _scheduleName: string = '教务系统导入'
   ): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -28,8 +29,8 @@ export function useCourse() {
         baseUrl,
       });
       courses.value = result;
-      // 保存到缓存
-      await saveScheduleCache(result, '未命名课表');
+      // 后端已自动获取并保存所有学期课表，不需要前端再次保存
+      // await saveScheduleCache(result, scheduleName);
     } catch (e) {
       error.value = String(e);
       throw e;
@@ -72,9 +73,6 @@ export function useCourse() {
     }
   }
 
-  /**
-   * 保存课表到缓存
-   */
   /**
    * 保存课表到缓存
    */
@@ -254,8 +252,6 @@ export function useCourse() {
     maxWeek,
   };
 }
-
-// ... existing code ...
 
 /**
  * 监听浏览器导入事件

@@ -4,7 +4,7 @@ mod client;
 mod storage;
 
 use client::EduSystemClient;
-use models::{AppConfig, CachedSchedule, Course, ScheduleMetadata, UserCredentials, TimeTable};
+use models::{AppConfig, CachedSchedule, Course, ScheduleMetadata, UserCredentials, TimeTable, UserInfo};
 use storage::StorageManager;
 use chrono::{Utc, Duration, Datelike};
 use std::fs;
@@ -12,6 +12,126 @@ use std::collections::HashSet;
 use tauri::{Manager, Emitter};
 
 // ============== Tauri Commands ==============
+
+/// 登录并获取用户信息（不获取课表）
+#[tauri::command]
+async fn login_and_get_user_info(
+    username: String,
+    password: String,
+    base_url: String,
+) -> Result<UserInfo, String> {
+    let credentials = UserCredentials { username, password };
+    let mut client = EduSystemClient::new(base_url);
+
+    // 执行登录
+    let login_response = client.login(&credentials).await?;
+    if !login_response.success {
+        return Err(format!("登录失败: {}", login_response.message));
+    }
+
+    // 检查 Cookie 是否存在
+    let cookie = login_response.cookie.ok_or_else(|| {
+        "登录成功但未获取到会话信息，请稍后重试".to_string()
+    })?;
+
+    // 保存 Cookie（失败则返回错误，中断登录流程）
+    let storage = StorageManager::new()?;
+    println!("准备保存登录信息，路径: {:?}", storage.cookie_path());
+    storage.save_cookie(&cookie).map_err(|e| {
+        format!("保存登录信息失败: {}，请检查文件系统权限", e)
+    })?;
+    println!("登录信息保存成功，Cookie 长度: {} 字节", cookie.len());
+
+    // 获取用户信息
+    let user_info = client.get_user_info().await?;
+
+    Ok(user_info)
+}
+
+/// 退出登录
+#[tauri::command]
+fn logout_user() -> Result<(), String> {
+    let storage = StorageManager::new()?;
+
+    // 删除保存的 Cookie（使用统一的路径方法）
+    let cookie_path = storage.cookie_path();
+    println!("准备删除登录信息，路径: {:?}", cookie_path);
+
+    if cookie_path.exists() {
+        std::fs::remove_file(&cookie_path)
+            .map_err(|e| format!("删除登录信息失败: {}", e))?;
+        println!("登录信息已删除");
+    } else {
+        println!("登录信息文件不存在，无需删除");
+    }
+
+    Ok(())
+}
+
+/// 使用已保存的登录状态导入课表
+#[tauri::command]
+async fn import_schedule_from_saved_login(
+    year: i32,
+    term: i32,
+    schedule_name: String,
+) -> Result<String, String> {
+    let storage = StorageManager::new()?;
+
+    // 加载已保存的 Cookie
+    println!("准备加载登录信息，路径: {:?}", storage.cookie_path());
+    let cookie = storage.load_cookie()
+        .map_err(|_| "未找到登录信息，请先在个人中心登录".to_string())?;
+    println!("登录信息加载成功，Cookie 长度: {} 字节", cookie.len());
+
+    // CUFE 教务系统 URL
+    let base_url = "https://xuanke.cufe.edu.cn/jwglxt";
+
+    // 创建客户端并设置 Cookie
+    let mut client = EduSystemClient::new(base_url.to_string());
+    client.set_cookie(&cookie);
+
+    // 获取课表
+    let courses = client.get_schedule(year, term).await?;
+
+    if courses.is_empty() {
+        return Err("该学期暂无课程".to_string());
+    }
+
+    // 生成课表 ID
+    let schedule_id = StorageManager::generate_schedule_id();
+
+    // 保存课表
+    let now = Utc::now().timestamp();
+    let expire_time = now + (30 * 24 * 60 * 60); // 30 天后过期
+
+    // 计算 sort_index (放在最后)
+    let current_list = storage.list_schedules()?;
+    let max_index = current_list.iter().filter_map(|s| s.sort_index).max().unwrap_or(-1);
+    let sort_index = max_index + 1;
+
+    let cached = CachedSchedule {
+        id: schedule_id.clone(),
+        name: schedule_name,
+        courses,
+        timestamp: now,
+        expire_time,
+        first_day: None,
+        max_periods: None,
+        weeks_count: None,
+        time_table_id: None,
+        sort_index: Some(sort_index),
+    };
+
+    storage.save_schedule(&cached)?;
+
+    // 更新当前选中的课表 ID
+    let mut config = storage.load_config().unwrap_or_default();
+    config.current_schedule_id = Some(schedule_id.clone());
+    storage.save_config(&config)?;
+
+    Ok(schedule_id)
+}
+
 
 /// 登录并获取课表
 #[tauri::command]
@@ -29,16 +149,78 @@ async fn login_and_get_schedule(
         return Err(format!("登录失败: {}", login_response.message));
     }
 
-    // 获取课表
-    let courses = client.get_schedule().await?;
+    // 尝试多个学期：当前学期，如果失败则尝试上一学期，再失败尝试下一学期
+    let now = Utc::now();
+    let month = now.month();
+    let year = now.year();
+
+    // 确定当前推测的学年和学期
+    let (current_year, current_term) = if month >= 9 {
+        (year, 1) // 9月-12月: 第一学期 (如 2025-2026-1)
+    } else if month == 1 {
+        (year - 1, 1) // 1月: 仍视为第一学期 (如 2025-2026-1)
+    } else {
+        (year - 1, 2) // 2月-8月: 第二学期 (如 2025-2026-2)
+    };
+
+    // 生成待尝试的 (year, term) 列表
+    let mut tasks = vec![
+        (current_year, current_term),
+    ];
+    
+    // 如果是第二学期，失败后尝试第一学期
+    if current_term == 2 {
+        tasks.push((current_year, 1));
+    } else {
+        // 如果是第一学期，失败后尝试上一学年的第二学期
+        tasks.push((current_year - 1, 2));
+    }
+
+    // 再尝试一下未来/过去的一个备选 (例如当前是第一学期，也试试第二学期以防万一)
+    if current_term == 1 {
+        tasks.push((current_year, 2)); // 同一学年的第二学期
+    } else {
+        tasks.push((current_year + 1, 1)); // 下一学年的第一学期
+    }
+
+    let mut final_courses = Vec::new();
+    let mut last_error = "未找到有效的课表数据".to_string();
+
+    for (y, t) in tasks {
+        println!("尝试获取课表: {}-学期{}", y, t);
+        match client.get_schedule(y, t).await {
+            Ok(courses) => {
+                if !courses.is_empty() {
+                    println!("成功获取课表: {} 门课程", courses.len());
+                    final_courses = courses;
+                    break;
+                } else {
+                    println!("课表为空，尝试下一个学期...");
+                    last_error = "当前学期暂无课程".to_string();
+                }
+            },
+            Err(e) => {
+                println!("获取失败: {}, 尝试下一个学期...", e);
+                last_error = e;
+            }
+        }
+    }
+
+    if final_courses.is_empty() {
+        return Err(format!("无法获取课表: {}", last_error));
+    }
 
     // 保存 Cookie
     if let Some(cookie) = login_response.cookie {
         let storage = StorageManager::new()?;
-        storage.save_cookie(&cookie)?;
+        println!("准备保存登录信息，路径: {:?}", storage.cookie_path());
+        storage.save_cookie(&cookie).map_err(|e| {
+            format!("保存登录信息失败: {}，请检查文件系统权限", e)
+        })?;
+        println!("登录信息保存成功，Cookie 长度: {} 字节", cookie.len());
     }
 
-    Ok(courses)
+    Ok(final_courses)
 }
 
 /// 刷新课表数据（使用已保存的 Cookie）
@@ -53,8 +235,21 @@ async fn refresh_schedule(base_url: String) -> Result<Vec<Course>, String> {
     let mut client = EduSystemClient::new(base_url);
     client.set_cookie(&cookie);
 
+    // 计算当前学期
+    let now = Utc::now();
+    let month = now.month();
+    let year = now.year();
+
+    let (school_year, term) = if month >= 9 {
+        (year, 1)
+    } else if month == 1 {
+        (year - 1, 1)
+    } else {
+        (year - 1, 2)
+    };
+
     // 获取课表
-    let courses = client.get_schedule().await?;
+    let courses = client.get_schedule(school_year, term).await?;
 
     Ok(courses)
 }
@@ -602,6 +797,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
+            // 用户相关
+            login_and_get_user_info,
+            logout_user,
+            import_schedule_from_saved_login,
             // 登录相关
             login_and_get_schedule,
             refresh_schedule,

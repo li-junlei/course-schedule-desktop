@@ -34,45 +34,10 @@
     </div>
 
     <!-- 导入课表对话框 -->
-    <el-dialog
+    <ImportScheduleDialog
       v-model="showImportDialog"
-      title=""
-      width="90%"
-      align-center
-      :show-close="false"
-      class="custom-dialog"
-      append-to-body
-      style="max-width: 480px;"
-    >
-      <div class="dialog-header">
-        <div class="dialog-title">导入课表</div>
-        <div class="dialog-close-btn" @click="showImportDialog = false">
-          <el-icon :size="20"><Close /></el-icon>
-        </div>
-      </div>
-      <div class="dialog-content">
-        <!--
-        <div class="setting-item">
-            <div class="setting-label">选择解析脚本</div>
-             <el-select v-model="selectedParserConfig" placeholder="请选择脚本" class="modern-input" style="width: 100%">
-               <el-option
-                 v-for="config in parserConfigs"
-                 :key="config.id"
-                 :label="config.name"
-                 :value="config.id"
-               />
-             </el-select>
-        </div>
-        <div class="file-upload-area" @click="handleFileSelect" @drop.prevent="handleFileDrop" @dragover.prevent>
-             <el-icon :size="48" color="var(--primary-color)"><Upload /></el-icon>
-             <div class="upload-text">点击或拖拽 HTML 文件至此</div>
-        </div>
-        -->
-      </div>
-      <div class="dialog-footer">
-        <el-button @click="showImportDialog = false" class="modern-button">取消</el-button>
-      </div>
-    </el-dialog>
+      @import-success="handleImportSuccess"
+    />
 
     <!-- 设置对话框 -->
     <el-dialog
@@ -514,6 +479,9 @@
 
     </div>
 
+    <!-- 用户个人中心对话框 -->
+    <UserProfileDialog v-model="showUserProfileDialog" />
+
     <!-- 主题切换按钮 -->
     <div class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色模式' : '切换深色模式'">
       <el-icon :size="20">
@@ -542,7 +510,8 @@ import WeekSelector from './components/WeekSelector.vue';
 import CourseGrid from './components/CourseGrid.vue';
 import ScheduleEditDialog from './components/ScheduleEditDialog.vue';
 import ImportScheduleDialog from './components/ImportScheduleDialog.vue';
-import type { AppConfig, ScheduleMetadata, EduSystem } from './types';
+import UserProfileDialog from './components/UserProfileDialog.vue';
+import type { AppConfig, ScheduleMetadata, EduSystem, UserInfo } from './types';
 
 // UI 状态
 const showPopup = ref(false);
@@ -551,6 +520,7 @@ const showImportDialog = ref(false);
 const showSettingsDialog = ref(false);
 const showAppearanceDialog = ref(false);
 const showScheduleManageDialog = ref(false);
+const showUserProfileDialog = ref(false); // 用户个人中心对话框
 // const showScheduleDateDialog = ref(false); // Unused - dialog is deprecated
 const loading = ref(false);
 const isSorting = ref(false); // 排序模式状态
@@ -587,7 +557,7 @@ const tempConfig = ref<AppConfig>({}); // For editing in settings
 const backgroundImage = ref('');
 
 // 课表数据和颜色
-const { courses, parseHtmlSchedule, loadCachedSchedule, saveScheduleCache, listSchedules, deleteSchedule, switchSchedule, reorderSchedules } = useCourse();
+const { courses, parseHtmlSchedule, loginAndGetSchedule, loadCachedSchedule, saveScheduleCache, listSchedules, deleteSchedule, switchSchedule, reorderSchedules } = useCourse();
 const { setupImportListener } = useBrowserImport();
 const courseColors = getShuffledColors();
 
@@ -785,7 +755,20 @@ function handleWeekChange(week: number) {
 async function openBrowser(systemId: string, scheduleName: string) {
     try {
         // 查找选中的教务系统
-        const system = config.value.edu_systems?.find(s => s.id === systemId);
+        // 查找选中的教务系统
+        let system = config.value.edu_systems?.find(s => s.id === systemId);
+        
+        // Fallback for CUFE default
+        if (!system && systemId === 'cufe') {
+             system = {
+                 id: 'cufe',
+                 name: '中央财经大学',
+                 url: 'https://xuanke.cufe.edu.cn/jwglxt/',
+                 parser_type: 'cufe_default',
+                 enabled: true
+             };
+        }
+
         if (!system) {
             ElMessage.error('未找到所选教务系统配置');
             return;
@@ -943,6 +926,7 @@ async function handleDeleteSchedule(scheduleId: string) {
 // 新建课表
 async function handleNewSchedule() {
   showScheduleManageDialog.value = false;
+  showPopup.value = false;
   showImportDialog.value = true;
 }
 
@@ -956,14 +940,60 @@ function handleEditSchedule(schedule: ScheduleMetadata) {
 }
 
 // 确认导入课表
-async function handleConfirmImport(data: { systemId: string; scheduleName: string }) {
+async function handleConfirmImport(data: { 
+    method: 'browser' | 'login'; 
+    systemId: string; 
+    scheduleName: string; 
+    username?: string; 
+    password?: string; 
+}) {
     // 保存用户选择的教务系统 ID
     config.value.last_edu_system_id = data.systemId;
     await invoke('save_app_config', { config: config.value });
 
-    // 打开浏览器
-    await openBrowser(data.systemId, data.scheduleName);
+    if (data.method === 'login') {
+        if (!data.username || !data.password) return;
+        
+        // 查找选中的教务系统 URL
+        // 查找选中的教务系统 URL
+        let system = config.value.edu_systems?.find(s => s.id === data.systemId);
+        
+        // Fallback for CUFE default if config is missing
+        if (!system && data.systemId === 'cufe') {
+             system = {
+                 id: 'cufe',
+                 name: '中央财经大学',
+                 url: 'https://xuanke.cufe.edu.cn/jwglxt/',
+                 parser_type: 'cufe_default',
+                 enabled: true
+             };
+        }
+
+        if (!system) {
+            ElMessage.error('未找到所选教务系统配置');
+            return;
+        }
+
+        loading.value = true;
+        try {
+            await loginAndGetSchedule(data.username, data.password, system.url, data.scheduleName);
+            ElMessage.success('登录并获取课表成功');
+            showImportDialog.value = false;
+            
+            // 刷新列表并加载最新
+            await loadScheduleList();
+        } catch (e) {
+            console.error(e);
+            ElMessage.error(`登录失败: ${e}`);
+        } finally {
+            loading.value = false;
+        }
+    } else {
+        // 打开浏览器
+        await openBrowser(data.systemId, data.scheduleName); // Removed extra close paren
+    }
 }
+
 
 // 处理背景上传
 async function handleUploadBackground() {
@@ -1053,11 +1083,18 @@ async function handleToggleLocation() {
   }
 }
 
-// 打开设置
+async function handleImportSuccess(scheduleId: string) {
+  // 重新加载课表列表
+  await loadScheduleList();
+  // 切换到新导入的课表
+  await handleSwitchSchedule(scheduleId);
+  ElMessage.success('课表导入成功');
+}
+
+// 打开个人中心
 function openSettings() {
   showPopup.value = false;
-  tempConfig.value = { ...config.value };
-  showSettingsDialog.value = true;
+  showUserProfileDialog.value = true;
 }
 
 // 保存设置

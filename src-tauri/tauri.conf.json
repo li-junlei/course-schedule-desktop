@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "course-schedule-desktop",
+  "productName": "CUFE-COURSE",
   "version": "1.7.0",
-  "identifier": "com.lijunlei.course-schedule-desktop",
+  "identifier": "com.lijunlei.cufe-course",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "course-schedule-desktop",
+        "title": "CUFE-COURSE",
         "width": 550,
         "height": 800
       }

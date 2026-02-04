@@ -17,8 +17,8 @@
             <span>课表外观</span>
           </div>
           <div class="menu-item" @click="$emit('settings')">
-            <el-icon :size="28"><Setting /></el-icon>
-            <span>设置</span>
+            <el-icon :size="28"><User /></el-icon>
+            <span>个人</span>
           </div>
         </div>
       </div>
@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { Collection, Picture, Setting, Plus } from '@element-plus/icons-vue';
+import { Collection, Picture, User, Plus } from '@element-plus/icons-vue';
 
 defineProps<{
   show: boolean;

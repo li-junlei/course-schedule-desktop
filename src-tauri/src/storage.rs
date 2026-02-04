@@ -15,7 +15,7 @@ impl StorageManager {
         // 获取用户数据目录
         let data_dir = dirs::data_local_dir()
             .ok_or("无法获取用户数据目录")?
-            .join("course-schedule");
+            .join("cufe-course");
 
         // 创建目录（如果不存在）
         fs::create_dir_all(&data_dir)
@@ -45,7 +45,7 @@ impl StorageManager {
     }
 
     /// 获取 Cookie 文件路径
-    fn cookie_path(&self) -> PathBuf {
+    pub fn cookie_path(&self) -> PathBuf {
         self.data_dir.join("cookie.txt")
     }
 
@@ -66,8 +66,16 @@ impl StorageManager {
         let content = fs::read_to_string(&path)
             .map_err(|e| format!("读取配置文件失败: {}", e))?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| format!("解析配置文件失败: {}", e))
+        match serde_json::from_str(&content) {
+            Ok(config) => Ok(config),
+            Err(e) => {
+                println!("解析配置文件失败, 重置为默认配置: {}", e);
+                // 备份损坏的配置文件
+                let backup_path = path.with_extension("json.bak");
+                let _ = fs::rename(&path, &backup_path);
+                Ok(AppConfig::default())
+            }
+        }
     }
 
     /// 保存应用配置
@@ -195,19 +203,18 @@ impl StorageManager {
     /// 保存 Cookie
     pub fn save_cookie(&self, cookie: &str) -> Result<(), String> {
         let path = self.cookie_path();
-        let mut file = fs::File::create(&path)
-            .map_err(|e| format!("创建 Cookie 文件失败: {}", e))?;
-        file.write_all(cookie.as_bytes())
-            .map_err(|e| format!("写入 Cookie 失败: {}", e))?;
-
-        Ok(())
+        fs::File::create(&path)
+            .and_then(|mut file| file.write_all(cookie.as_bytes()))
+            .map_err(|e| format!("创建 Cookie 文件失败 (路径: {}): {}",
+                                path.display(), e))
     }
 
     /// 加载 Cookie
     pub fn load_cookie(&self) -> Result<String, String> {
         let path = self.cookie_path();
         if !path.exists() {
-            return Err("没有保存的 Cookie".to_string());
+            return Err(format!("未找到登录信息文件: {}，请先在个人中心登录",
+                              path.display()));
         }
 
         fs::read_to_string(&path)

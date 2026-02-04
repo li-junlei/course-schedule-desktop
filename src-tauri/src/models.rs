@@ -98,6 +98,19 @@ pub struct LoginResponse {
     pub cookie: Option<String>,
 }
 
+/// 用户个人信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub student_number: String,  // 学号
+    pub name: String,            // 姓名
+    pub department: String,      // 学院
+    pub class_name: String,      // 班级
+    pub grade: String,           // 年级
+    pub major: String,           // 专业
+    pub gender: String,          // 性别
+    pub photo_url: Option<String>, // 照片URL
+}
+
 /// 时间表
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeTable {

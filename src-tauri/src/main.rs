@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    course_schedule_desktop_lib::run()
+    cufe_course_lib::run()
 }

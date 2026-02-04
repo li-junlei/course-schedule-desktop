@@ -112,3 +112,26 @@ export interface ScheduleMetadata {
   /** 排序索引 */
   sort_index?: number;
 }
+
+/**
+ * 用户个人信息
+ */
+export interface UserInfo {
+  /** 学号 */
+  student_number: string;
+  /** 姓名 */
+  name: string;
+  /** 学院 */
+  department: string;
+  /** 班级 */
+  class_name: string;
+  /** 年级 */
+  grade: string;
+  /** 专业 */
+  major: string;
+  /** 性别 */
+  gender: string;
+  /** 照片URL */
+  photo_url?: string;
+}
+
